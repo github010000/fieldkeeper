@@ -21,6 +21,8 @@ const SPEED_M_PER_MIN = { robot: 15000 / 60, drone: 60000 / 60 } as const;
 const UNIT_TYPE: Record<string, "robot" | "drone"> = { R1: "robot", R2: "robot", D1: "drone" };
 
 type Pt = [number, number];
+// 구간 노면 — twy = 포장 유도로(노란 중심선) · grass = 잔디(포장 없음, 화면이 흔들린다) · air = 비행(드론)
+export interface Leg { name: string; surface: "twy" | "grass" | "air" }
 const pathLen = (p: Pt[]) => p.slice(1).reduce((s, q, i) => s + Math.hypot(q[0] - p[i][0], q[1] - p[i][1]), 0);
 const minutes = (unit: string, p: Pt[]) => (pathLen(p) * M_PER_UNIT) / SPEED_M_PER_MIN[UNIT_TYPE[unit]];
 
@@ -39,6 +41,7 @@ export interface Scene extends Spot {
   approveLabel: string;
   cam: { unit: string; ir: boolean };  // 로봇 카메라 화면(/cam) — 어느 장비의 눈인가 · 야간 적외선 톤인가
   paths: Record<string, Pt[]>;   // 승인 뒤 움직이는 장비와 경로(대기소 → 현장)
+  legs?: Record<string, Leg[]>;  // 경로 구간마다 이름 · 노면 — 로봇 카메라 이동 화면(내비 안내 · 꺾임)에 쓴다
   travelMin: number;             // 가장 늦게 도착하는 장비 기준(시연 분)
   result: string;                // 도착 뒤 — 카메라로 보이는 조치(해결된 모습)
   // 종결 조건 — 로봇이 도착해도 바로 끝나지 않는다(침입자는 관계기관이 넘겨받아야 끝난다).
@@ -64,6 +67,7 @@ export const SCENES: Scene[] = [
     approveLabel: "로봇 1 출동 승인",
     cam: { unit: "R1", ir: true },
     paths: { R1: [[62, 330], [102, 330], [102, 304], [120, 304], [192, 334]] },
+    legs: { R1: [{ name: "대기소 연결로", surface: "twy" }, { name: "유도로 A", surface: "twy" }, { name: "유도로 A4", surface: "twy" }, { name: "활주로 건너 잔디", surface: "grass" }] },
     result: "로봇 1이 침입자 2명을 추적 · 경고 방송으로 멈춰 세움 → 관계기관 도착 · 인계 완료.",
     waitText: "추적 · 경고 방송 중 — 관계기관 도착 대기", closeLabel: "인계 확인 — 종결", closeShort: "인계", resolveS: 16, resolveMin: 8,
     held: "보류 — 로봇 1 대기. 울타리 고정 카메라로 계속 지켜본다.",
@@ -78,6 +82,7 @@ export const SCENES: Scene[] = [
     approveLabel: "로봇 2 수거 승인",
     cam: { unit: "R2", ir: true },
     paths: { R2: [[76, 330], [102, 330], [102, 240], [117, 240]] },
+    legs: { R2: [{ name: "대기소 연결로", surface: "twy" }, { name: "유도로 A", surface: "twy" }, { name: "유도로 A3", surface: "twy" }] },
     result: "이물질 1건 수거 · 전후 사진 기록. 관리자가 카메라로 확인하면 「활주로 이상 없음」.",
     waitText: "수거 중", closeLabel: "수거 확인 — 활주로 사용 가능", closeShort: "수거 확인", resolveS: 6, resolveMin: 2,
     held: "보류 — 로봇 2 대기. 첫 편 전에 다시 판단한다.",
@@ -93,6 +98,7 @@ export const SCENES: Scene[] = [
     approveLabel: "드론 1 출동 승인",
     cam: { unit: "D1", ir: false },
     paths: { D1: [[166, 128], [126, 24]] },
+    legs: { D1: [{ name: "북쪽 접근로", surface: "air" }] },
     result: "새 떼 접근로 밖으로 이동 · 퇴치 기록. 같은 무리가 돌아오면 다시 간다.",
     waitText: "음향·조명 퇴치 중", closeLabel: "접근로 정상 확인 — 종결", closeShort: "접근로 정상", resolveS: 8, resolveMin: 2,
     held: "보류 — 드론 1 대기. 관제탑에 조류 정보를 전한다.",

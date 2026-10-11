@@ -122,7 +122,9 @@ body.cam main.camwrap{padding:0;max-width:none;display:block}
 .clock .date{display:block;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-bottom:2px}
 .unlock{position:fixed;inset:0;z-index:30;background:rgba(5,10,15,.92);color:#fff;font-size:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border-radius:0}
 .unlock small{font-size:14px;color:var(--dim);font-weight:500;max-width:80%}
-@media (min-width:860px){
+/* 넓은 화면(아이패드 세로 744px~) — 지도와 장면 카드를 두 칸으로 */
+@media (min-width:700px){
+  .camprev{height:340px}
   main{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:start}
   .mapbox{height:calc(100vh - 100px);position:sticky;top:76px}
   body.cam .camview{max-width:520px;margin:0 auto}
@@ -148,7 +150,7 @@ const esc=(s)=>String(s).replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&g
 const now=()=>Date.now()+offset;
 const sim=()=>simClock(run,now(),SCI);
 const el=()=>run?(now()-run.phase_at)/1000:0;
-const mv=(t)=>t>0?6:1;
+const mv=(t)=>t>0?10:1;
 const canAct=()=>ROLE==="ops"&&(!locked||!!key);
 // 단계 — idle · travel(빨리 감기) · decide(관리자 결정) · moving(출동) · acting(현장 조치 중) · resolved(해결 — 종결 가능) · hold · closed · summary
 function stage(){
@@ -179,7 +181,25 @@ const sfx={
   chime(){tone(660,0.35,"sine",0,0.3);tone(990,0.5,"sine",0.3,0.3)},                // 해결 — 확인음
   deter(){for(let i=0;i<8;i++)tone(2200,0.22,"square",i*0.32,0.12,4200)},            // 조류 — 음향 퇴치(시뮬레이션)
   warn(){if(warnEl){warnEl.currentTime=0;warnEl.play().catch(()=>{})}},              // 침입 — 로봇 스피커 경고 방송(한국어 · 영어)
+  depart(){tone(523,0.12,"square",0,0.12);tone(784,0.18,"square",0.16,0.12)},        // 출발 신호
+  caution(){tone(1400,0.08,"sine",0,0.07)},                                          // 이동 중 주의 비프
+  tick(){tone(2300,0.025,"square",0,0.08)},tock(){tone(1700,0.025,"square",0,0.08)}, // 꺾기 전 깜빡이
+  servo(){tone(320,1.2,"sawtooth",0,0.035,720);tone(720,1.0,"sawtooth",1.3,0.035,380)}, // 수거 팔 펴기 · 접기
 };
+// 계속 나는 소리(구동음) — 로봇 모터 · 드론 프로펠러 · 멀리 있는 침입 드론. 폰 스피커는 100Hz 아래를 거의 못 내서 배음을 섞는다
+const ENG={robot:[[96,"sawtooth"],[192,"square"]],drone:[[210,"sawtooth"],[217,"sawtooth"]],far:[[240,"sawtooth"],[247,"sawtooth"]]};
+const ENG_G={robot:0.06,drone:0.045,far:0.02},ENG_F={robot:1100,drone:1600,far:900};
+let eng=null;
+function engine(want){
+  if(eng&&eng.key!==want){const e=eng,t=actx.currentTime;eng=null;
+    try{e.o.forEach((o)=>{o.frequency.setValueAtTime(o.frequency.value,t);o.frequency.linearRampToValueAtTime(o.frequency.value*0.55,t+0.6)});e.g.gain.setTargetAtTime(0.0001,t,0.18);e.o.forEach((o)=>o.stop(t+0.9))}catch(x){}}
+  if(!want||eng||!soundOn||!actx)return;
+  const kind=want.split("|")[0],t=actx.currentTime,g=actx.createGain(),f=actx.createBiquadFilter(),lfo=actx.createOscillator(),lg=actx.createGain();
+  f.type="lowpass";f.frequency.value=ENG_F[kind];g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(ENG_G[kind],t+0.4);
+  lfo.frequency.value=kind==="robot"?5:23;lg.gain.value=kind==="robot"?3:6;lfo.connect(lg);
+  const o=ENG[kind].map(([fr,ty])=>{const x=actx.createOscillator();x.type=ty;x.frequency.value=fr;lg.connect(x.frequency);x.connect(f);x.start(t);return x});
+  lfo.start(t);o.push(lfo);f.connect(g).connect(actx.destination);eng={key:want,o,g};
+}
 function once(k,f){if(played.has(k))return;played.add(k);if(soundOn)f()}
 const incOf=(n)=>inc.find((x)=>x.scene===n);
 ${CAM_JS}
@@ -337,11 +357,22 @@ function toast(a){
 }
 let lastStage="";
 function sounds(st){
-  const sc=scene();if(!run||!sc)return;const k=run.id+"|"+run.scene;
-  if(ROLE==="ops"){if(st==="decide")once(k+"|alert",sfx.alert);return}
-  const t=el()-mv(sc.travelMin);
+  const sc=scene();
+  if(ROLE!=="cam"){engine(null);if(run&&sc&&st==="decide")once(run.id+"|"+run.scene+"|alert",sfx.alert);return}
+  if(!run||!sc){engine(null);return}
+  const k=run.id+"|"+run.scene,e=el(),t=e-mv(sc.travelMin);let want=null;
+  if(st==="moving"&&sc.paths[sc.cam.unit]){                 // 경로가 있는 장비만(PTZ 카메라는 움직이지 않는다)
+    const air=sc.cam.unit==="D1";want=(air?"drone":"robot")+"|"+k;
+    once(k+"|depart",sfx.depart);
+    if(!air)once(k+"|c"+Math.floor(e/1.2),sfx.caution);
+    const P=camPose(sc,e/mv(sc.travelMin));                  // 꺾기 직전 깜빡이 — 내비 안내가 노랗게 바뀌는 때와 같다
+    if(P&&P.next&&P.next.dist<14){const n=Math.floor(e*2.8);once(k+"|t"+n,n%2?sfx.tock:sfx.tick)}
+  }
   if(st==="acting"&&t>0.3){if(sc.kind==="intrusion")once(k+"|warn",sfx.warn);if(sc.kind==="bird")once(k+"|deter",sfx.deter)}
+  if(st==="acting"&&sc.kind==="fod"&&t>2.5)once(k+"|servo",sfx.servo);
+  if(st==="acting"&&sc.kind==="drone")want="far|"+k;
   if(st==="resolved")once(k+"|chime",sfx.chime);
+  engine(want);
 }
 function tick(){
   $("#clock").textContent=hhmm(sim());$("#date").textContent=kstDate();

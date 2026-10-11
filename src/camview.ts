@@ -5,6 +5,23 @@
 //   날짜 = 화면 쪽 kstDate()(그날의 실제 날짜 — 데모데이에는 2026.10.17)
 //   frac = 이동 진행률(0~1)
 export const CAM_JS = `
+// 경로 자세 — 진행률(frac)에서 지금 구간 · 향하는 방위(북 0°, 시계 방향) · 앞쪽 길의 휨(rel) · 다음 꺾임을 계산한다.
+// 꺾임 앞뒤 W칸(1칸 = 10m) 동안 방위를 부드럽게 돌린다
+function camPose(sc,frac){
+  if(!sc||!sc.paths)return null;const u=sc.cam.unit,path=sc.paths[u];if(!path||path.length<2)return null;
+  const legs=(sc.legs&&sc.legs[u])||[],nh=(a)=>((a%360)+540)%360-180,sm=(t)=>t*t*(3-2*t);
+  const L=[],H=[],cum=[0];
+  for(let i=1;i<path.length;i++){const dx=path[i][0]-path[i-1][0],dy=path[i][1]-path[i-1][1];L.push(Math.hypot(dx,dy));H.push((Math.atan2(dx,-dy)*180/Math.PI+360)%360);cum.push(cum[i-1]+L[i-1])}
+  const tot=cum[cum.length-1],n=L.length,Wc=(c)=>Math.min(8,L[c-1]/2,L[c]/2);
+  function hAt(d){d=Math.max(0,Math.min(tot,d));let i=0;while(i<n-1&&d>cum[i+1])i++;
+    if(i>0&&d-cum[i]<Wc(i)){const W=Wc(i);return H[i-1]+nh(H[i]-H[i-1])*sm((d-cum[i]+W)/(2*W))}
+    if(i<n-1&&cum[i+1]-d<Wc(i+1)){const W=Wc(i+1);return H[i]+nh(H[i+1]-H[i])*sm((d-cum[i+1]+W)/(2*W))}
+    return H[i]}
+  const d=Math.max(0,Math.min(1,frac))*tot;let i=0;while(i<n-1&&d>cum[i+1])i++;
+  const h=hAt(d),rel=nh(hAt(d+14)-h),lg=legs[i]||{name:"",surface:sc.cam.unit==="D1"?"air":"twy"};
+  const next=i<n-1?{idx:i+1,turn:nh(H[i+1]-H[i]),name:(legs[i+1]||{}).name||"",dist:cum[i+1]-d}:null;
+  return {d,h:(h+360)%360,rel,i,name:lg.name,surface:lg.surface,next,remain:tot-d};
+}
 function camSvg(st,sc,t,frac,simMin){
   const W=300,H=400, ir=sc&&sc.cam.ir;
   const ink=ir?"#9dffb0":"#e8f1f8", dim=ir?"#3f7a4c":"#7d8c99", bg=ir?"#031208":"#0d1620";
@@ -14,6 +31,56 @@ function camSvg(st,sc,t,frac,simMin){
   const ground=(c)=>'<rect x="0" y="190" width="300" height="210" fill="'+c+'"/>';
   const sky=(a,b)=>'<defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+a+'"/><stop offset="1" stop-color="'+b+'"/></linearGradient></defs><rect width="300" height="400" fill="url(#sk)"/>';
   const box=(x,y,w,h,txt,c)=>'<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" fill="none" stroke="'+c+'" stroke-width="1.5"/><text x="'+x+'" y="'+(y-4)+'" fill="'+c+'" font-size="11" font-weight="700">'+txt+'</text>';
+  // ── 이동 화면 — 경로(지도)에서 계산한 방향대로 그린다. 꺾임이 다가오면 길이 그쪽으로 휘고, 꺾는 동안 풍경이 옆으로 흐른다 ──
+  const nh=(a)=>((a%360)+540)%360-180;
+  const qb=(a,b,c,u)=>[(1-u)*(1-u)*a[0]+2*u*(1-u)*b[0]+u*u*c[0],(1-u)*(1-u)*a[1]+2*u*(1-u)*b[1]+u*u*c[1]];
+  // 먼 불빛 · 건물 — 고정 방위에 있다. 방향이 바뀌면 화면에서 옆으로 지나간다
+  function horizon(h,y0){let s="";
+    for(let i=0;i<16;i++){const b=i*22.5+rnd(i,7)*14,x=150+nh(b-h)*3.2;if(x<-20||x>320)continue;
+      const w=8+rnd(i,8)*26,hh=6+rnd(i,9)*22;
+      s+='<rect x="'+(x-w/2)+'" y="'+(y0-hh)+'" width="'+w+'" height="'+hh+'" fill="'+(ir?"#0a2a14":"#26333f")+'"/>'+
+        '<circle cx="'+x+'" cy="'+(y0-hh-3)+'" r="1.6" fill="'+(ir?ink:"#ff5a4f")+'"/>'}
+    return s}
+  function groundView(P){
+    const h=P?P.h:0,rel=P?Math.max(-80,Math.min(80,P.rel)):0,d=P?P.d:frac*100,grass=P&&P.surface==="grass";
+    const Y=190,hx=150+rel*1.9,shake=grass?Math.sin(d*2.7)*2.2+Math.sin(d*7.1)*0.8:0;
+    let s='<g transform="translate(0,'+shake.toFixed(2)+')">'+ground(ir?"#052a10":"#2a3530")+horizon(h,Y);
+    const L=[[-10,400],[150-160*0.25,265],[hx-4,Y]],R=[[310,400],[150+160*0.25,265],[hx+4,Y]],C=[[150,400],[150,265],[hx,Y]];
+    if(grass){
+      for(let i=0;i<34;i++){const p=(rnd(i,5)+d*0.045)%1,q=p*p,x=150+(rnd(i,6)-0.5)*(40+q*620)+(hx-150)*(1-q),y=Y+q*210,w=1+q*5;
+        s+='<path d="M'+(x-w)+','+y+' l'+w+','+(-3-q*12)+' l'+w+','+(3+q*12)+'" fill="'+(ir?"#1f7a3a":"#55704a")+'"/>'}
+    }else{
+      let poly="";for(let k=0;k<=12;k++){const a=qb(L[0],L[1],L[2],k/12);poly+=(k?" L":"M")+a[0].toFixed(1)+","+a[1].toFixed(1)}
+      for(let k=12;k>=0;k--){const a=qb(R[0],R[1],R[2],k/12);poly+=" L"+a[0].toFixed(1)+","+a[1].toFixed(1)}
+      s+='<path d="'+poly+'Z" fill="'+(ir?"#0d3b1a":"#3a4048")+'"/>';
+      const yl=ir?ink:"#f2c230",bl=ir?ink:"#4da3ff";
+      for(let i=0;i<9;i++){const p=((i/9)+d*0.06)%1,u=1-p,v=Math.max(0,u-0.035*(0.4+p)),a=qb(C[0],C[1],C[2],u),b=qb(C[0],C[1],C[2],v);
+        s+='<path d="M'+a[0].toFixed(1)+','+a[1].toFixed(1)+' L'+b[0].toFixed(1)+','+b[1].toFixed(1)+'" stroke="'+yl+'" stroke-width="'+(1+p*6).toFixed(1)+'"/>'}
+      for(let i=0;i<6;i++){const p=((i/6)+d*0.035)%1,u=1-p,r=0.8+p*p*4;
+        [L,R].forEach((E)=>{const a=qb(E[0],E[1],E[2],u);s+='<circle cx="'+a[0].toFixed(1)+'" cy="'+(a[1]-r).toFixed(1)+'" r="'+r.toFixed(1)+'" fill="'+bl+'"/>'})}
+    }
+    return s+'</g>'}
+  function droneView(P){const h=P.h;let s=sky("#9fb8c9","#d9e4ea")+'<g transform="rotate(-6 150 230)"><rect x="-60" y="230" width="420" height="260" fill="#40553f"/>';
+    for(let i=0;i<8;i++){const y=230+((i*34+frac*900)%260);s+='<rect x="-60" y="'+y+'" width="420" height="1.5" fill="#5b7258"/>'}
+    for(let i=0;i<10;i++){const x=150+nh(i*36+rnd(i,3)*20-h)*3.2;if(x>-30&&x<330)s+='<rect x="'+(x-10)+'" y="'+(222-rnd(i,4)*14)+'" width="20" height="'+(8+rnd(i,4)*14)+'" fill="#56685a"/>'}
+    return s+'</g>'}
+  // 방위 띠 — 가운데 눈금이 지금 향하는 방향. 꺾으면 띠가 미끄러진다
+  function tape(h){const c=ir?ink:"#fff";let s='<g font-family="ui-monospace,Menlo,monospace" font-weight="700"><rect x="0" y="30" width="300" height="22" fill="rgba(0,0,0,.4)"/>';
+    for(let g=Math.ceil((h-70)/10)*10;g<=h+70;g+=10){const x=150+(g-h)*2.2,gg=((g%360)+360)%360,lab=gg%90===0?"NESW"[gg/90]:gg%30===0?String(gg/10):"";
+      s+='<rect x="'+(x-0.6)+'" y="'+(lab?33:36)+'" width="1.2" height="'+(lab?6:4)+'" fill="'+c+'" opacity=".8"/>';
+      if(lab)s+='<text x="'+x+'" y="49" fill="'+c+'" font-size="'+(lab.length===1&&isNaN(lab)?11:9)+'" text-anchor="middle">'+lab+'</text>'}
+    const hv=String(Math.round(((h%360)+360)%360)).padStart(3,"0");
+    return s+'<path d="M150,30 l-5,-0 l5,6 l5,-6z" fill="#ffd27a"/><rect x="128" y="53" width="44" height="15" rx="3" fill="rgba(0,0,0,.55)"/><text x="150" y="64" fill="#ffd27a" font-size="11" text-anchor="middle">'+hv+'°</text></g>'}
+  // 내비 안내 — 다음 꺾임(방향 · 들어갈 길 · 남은 거리) 또는 현장까지 남은 거리
+  function navBar(P){let a,txt;
+    if(P.next){const t=P.next.turn,R=t>0,soft=Math.abs(t)<35;a=soft?(R?"↗":"↖"):(R?"↱":"↰");
+      txt=(soft?"살짝 ":"")+(R?"우회전":"좌회전")+" · "+P.next.name+" · "+Math.max(0,Math.round(P.next.dist))*10+"m"}
+    else{a="▲";txt=(P.surface==="air"?"목표 공역까지 ":"현장까지 ")+Math.max(0,Math.round(P.remain))*10+"m"}
+    const wide=[...txt].reduce((w,c)=>w+(c>"\u1100"?14:7.6),0);          // 길면 칸 안으로 눌러 담는다
+    const near=P.next&&P.next.dist<14,blink=near&&Math.floor(Date.now()/350)%2===0;
+    return '<g font-weight="800"><rect x="16" y="74" width="268" height="34" rx="8" fill="'+(near?"rgba(255,210,122,.92)":"rgba(0,0,0,.6)")+'"/>'+
+      '<text x="36" y="99" fill="'+(near?"#2a1d00":"#ffd27a")+'" font-size="22" text-anchor="middle" opacity="'+(blink?0.35:1)+'">'+a+'</text>'+
+      '<text x="56" y="96" fill="'+(near?"#2a1d00":"#fff")+'" font-size="14"'+(wide>218?' textLength="218" lengthAdjust="spacingAndGlyphs"':'')+'>'+esc(txt)+'</text></g>'}
   function scene(tt,track){
     if(!sc)return "";
     if(sc.kind==="intrusion"){
@@ -64,11 +131,10 @@ function camSvg(st,sc,t,frac,simMin){
   }
   const bgSky=sc&&!ir?(sc.kind==="drone"||sc.kind==="bird"?sky("#9fb8c9","#d9e4ea"):""):"";
   if(st==="moving"){
-    if(unit==="D1"){body=sky("#9fb8c9","#d9e4ea")+'<g transform="rotate(-6 150 230)"><rect x="-60" y="230" width="420" height="260" fill="#40553f"/>';
-      for(let i=0;i<8;i++){const y=230+((i*34+frac*900)%260);body+='<rect x="-60" y="'+y+'" width="420" height="1.5" fill="#5b7258"/>'}body+='</g>'}
-    else{body=ground(ir?"#052a10":"#2a3530")+'<path d="M140,190 L160,190 L300,400 L0,400 Z" fill="'+(ir?"#0d3b1a":"#3a4048")+'"/>';
-      for(let i=0;i<6;i++){const p=((i/6)+frac*8)%1,y=190+p*p*210,w=1+p*7;body+='<rect x="'+(150-w/2)+'" y="'+y+'" width="'+w+'" height="'+(4+p*26)+'" fill="'+(ir?ink:"#e8e8e8")+'"/>'}}
-    status="이동 중 · 도착까지 "+Math.max(0,Math.ceil((1-frac)*sc.travelMin))+"분";
+    const P=camPose(sc,frac),air=P&&P.surface==="air";
+    body=air?droneView(P):groundView(P);
+    if(P)body+=tape(P.h)+navBar(P);
+    status="이동 중 · "+(P?P.name+" · ":"")+"도착까지 "+Math.max(0,Math.ceil((1-frac)*sc.travelMin))+"분";
   }else if(st==="acting"||st==="resolved"){body=bgSky+scene(t,true);
     const done=st==="resolved",k=sc.kind;
     status=done?(k==="intrusion"?"인계 완료 · 관리자 확인 대기":k==="fod"?"수거 완료 · 관리자 확인 대기":k==="bird"?"접근로 정상 · 관리자 확인 대기":"드론 이탈 · 관리자 확인 대기")
