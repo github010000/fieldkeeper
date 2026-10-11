@@ -70,7 +70,7 @@ export function mapSvg(): string {
   <text class="lbl dim start" x="${x + 9}" y="466">남쪽 접근로</text>
   <text class="lbl dim" x="206" y="190" transform="rotate(90 206 190)">동쪽 울타리 E-1</text>
   <text class="lbl dim" x="206" y="330" transform="rotate(90 206 330)">E-2</text>
-  <g class="north"><path d="M12,22 L16,12 L20,22 L16,19 Z"/><text x="16" y="9">N</text></g>
+  <text class="lbl dim" x="14" y="190" transform="rotate(-90 14 190)">서쪽 울타리 W-1</text>
   <g class="scale"><rect x="28" y="458" width="50" height="1.6"/><rect x="28" y="455" width="1" height="7"/><rect x="53" y="456" width="1" height="5"/><rect x="77" y="455" width="1" height="7"/><text x="53" y="453">500m</text></g>
   <g id="paths"></g>
   <g id="alerts"></g>

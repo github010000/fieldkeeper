@@ -1,6 +1,6 @@
 // 화면 — 역할은 주소가 정한다: /ops(= /) 관제 — 관리자(지도 · 판단 · 승인/보류 · 종결 · 기록) / /cam 로봇 카메라(방문객이 드는 폰, 단추 없음).
 // 시계는 화면이 직접 계산한다(timeline.ts 의 simClock 을 그대로 싣는다). 서버에는 1초마다 회차 · 사건 기록 · 자유 경보를 묻는다.
-// 지도는 장면이 진행되면 그 현장으로 다가간다(viewBox 를 옮긴다) — 폰 세로 화면에서 2.8km 활주로 전체는 너무 작다.
+// 지도는 폰(좁은 화면)에서만 장면 현장으로 다가간다(viewBox 를 옮긴다) — 폰 세로 화면에서 2.8km 활주로 전체는 너무 작다. 아이패드(700px↑)는 늘 전체.
 import { mapSvg, UNITS, VIEW } from "./airfield";
 import { KIND, SCENES } from "./scenario";
 import { simClock } from "./timeline";
@@ -25,6 +25,10 @@ header{position:sticky;top:0;z-index:5;background:rgba(11,18,25,.95);backdrop-fi
 main{padding:10px 12px 28px;max-width:1180px;margin:0 auto}
 .mapbox{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;height:40vh;min-height:260px}
 .mapbox .sim{position:absolute;left:8px;top:8px;z-index:1}
+.compass{position:absolute;right:8px;top:8px;z-index:1;width:44px;height:44px;pointer-events:none}
+.compass circle{fill:rgba(11,18,25,.72);stroke:#3a4b5c;stroke-width:1}
+.compass .n{fill:#ff5c5c} .compass .s{fill:#8fa3b5}
+.compass text{font:800 9px sans-serif;text-anchor:middle;dominant-baseline:central;fill:#c9d3dd} .compass text.tn{fill:#ff8a8a}
 svg.map{display:block;width:100%;height:100%}
 .strip{fill:var(--strip)}
 .fence{fill:none;stroke:var(--fence);stroke-width:.9;stroke-dasharray:3 2}
@@ -35,7 +39,7 @@ svg.map{display:block;width:100%;height:100%}
 .base{fill:none;stroke:#3a5a7a;stroke-width:.6;stroke-dasharray:2 1.5} .dock{fill:none;stroke:#3a5a7a;stroke-width:.6;stroke-dasharray:2 1.5}
 .als circle,.als rect{fill:#e8c35a;opacity:.85}
 .lbl{fill:var(--dim);font:500 5px sans-serif;text-anchor:middle} .lbl.dim{opacity:.8} .lbl.start{text-anchor:start} .lbl.end{text-anchor:end}
-.north path{fill:var(--dim)} .north text,.scale text{fill:var(--dim);font:700 5px sans-serif;text-anchor:middle} .scale rect{fill:var(--dim)}
+.scale text{fill:var(--dim);font:700 5px sans-serif;text-anchor:middle} .scale rect{fill:var(--dim)}
 .radar circle{fill:#9fd3ff}
 .radar .sweep{fill:none;stroke:#9fd3ff;stroke-width:.6;transform-box:fill-box;transform-origin:center;animation:ring 2.4s ease-out infinite}
 @keyframes ring{from{transform:scale(1);opacity:.9}to{transform:scale(5);opacity:0}}
@@ -132,6 +136,7 @@ body.cam main.camwrap{padding:0;max-width:none;display:block}
   .camprev{height:340px}
   main{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:start}
   .mapbox{height:calc(100vh - 100px);position:sticky;top:76px}
+  .compass{width:68px;height:68px}
   body.cam .camview{max-width:520px;margin:0 auto}
   .toast{left:auto;width:380px}
   .sheet{left:auto;width:420px;right:16px;bottom:16px;border-radius:18px;border:1px solid var(--line)}
@@ -263,10 +268,12 @@ function drawMap(){
   const p=$("#paths");p.innerHTML="";const sc=scene(),st=stage();
   if(sc&&["moving","acting","resolved"].includes(st))for(const id in sc.paths)svgEl("polyline",{class:"route",points:sc.paths[id].map((q)=>q.join(",")).join(" ")},p);
 }
-// 카메라 — 장면 중엔 경보 지점과 장비 경로가 다 보이도록 다가가고, 그 밖엔 전체
+// 카메라 — 폰(좁은 화면)은 장면 중 경보 지점과 장비 경로가 다 보이도록 다가가고, 그 밖엔 전체.
+// 넓은 화면(두 칸, 700px↑ = 아이패드 관제)은 늘 공항 전체 — 어디서 일이 났는지가 보여야 한다(대장 10-11)
 function camTarget(box){
   const sc=scene(),st=stage();let pts=null;
-  if(sc&&!["travel","idle","closed","summary"].includes(st)){pts=[[sc.x,sc.y]];for(const u of UNITS)if(sc.paths[u.id])pts.push(...sc.paths[u.id]);
+  const wide=matchMedia("(min-width:700px)").matches;
+  if(!wide&&sc&&!["travel","idle","closed","summary"].includes(st)){pts=[[sc.x,sc.y]];for(const u of UNITS)if(sc.paths[u.id])pts.push(...sc.paths[u.id]);
     if(!Object.keys(sc.paths).length)pts.push([sc.x+60,sc.y-60],[sc.x+10,sc.y-120])}
   let x0=0,y0=0,x1=VW,y1=VH;
   if(pts){x0=Math.min(...pts.map(q=>q[0]))-22;x1=Math.max(...pts.map(q=>q[0]))+22;y0=Math.min(...pts.map(q=>q[1]))-22;y1=Math.max(...pts.map(q=>q[1]))+22}
@@ -484,7 +491,7 @@ export function dashboardPage(role: "ops" | "cam"): string {
   <button id="menu" class="menu-btn" aria-label="메뉴">☰</button>
 </header>
 <main>
-  <section class="mapbox">${mapSvg()}<span class="sim">센서·로봇 = 시뮬레이션</span></section>
+  <section class="mapbox">${mapSvg()}<span class="sim">센서·로봇 = 시뮬레이션</span><svg class="compass" viewBox="0 0 56 56" aria-label="방위 — 위가 북"><circle cx="28" cy="28" r="27"/><path class="n" d="M28,9 L32,28 L24,28 Z"/><path class="s" d="M28,47 L32,28 L24,28 Z"/><text class="tn" x="28" y="5.5">북</text><text x="50.5" y="28">동</text><text x="28" y="50.5">남</text><text x="5.5" y="28">서</text></svg></section>
   <section class="side">
     <div id="steps" class="step"></div>
     <div id="cards"></div>
