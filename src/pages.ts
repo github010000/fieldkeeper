@@ -168,8 +168,10 @@ function kstDate(){const d=new Date(now()+9*3600e3);return d.getUTCFullYear()+".
 let actx=null,warnEl=null,soundOn=false;const played=new Set();
 function unlockAudio(){
   try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume();
-    if(!warnEl){warnEl=new Audio("/audio/warning.mp3");warnEl.preload="auto"}
-    warnEl.muted=true;const p=warnEl.play();if(p)p.then(()=>{warnEl.pause();warnEl.currentTime=0;warnEl.muted=false}).catch(()=>{warnEl.muted=false});
+    // 경고 방송은 로봇 카메라(/cam)만 낸다 — 관제는 방송 파일을 아예 불러오지 않는다(음소거 깨우기가 새는 기기가 있다)
+    if(ROLE==="cam"){
+      if(!warnEl){warnEl=new Audio("/audio/warning.mp3");warnEl.preload="auto"}
+      warnEl.muted=true;const p=warnEl.play();if(p)p.then(()=>{warnEl.pause();warnEl.currentTime=0;warnEl.muted=false}).catch(()=>{warnEl.muted=false})}
     soundOn=true}catch(e){}
 }
 function tone(f,d,type,at,g,f2){if(!actx)return;const o=actx.createOscillator(),v=actx.createGain(),t=actx.currentTime+(at||0);
