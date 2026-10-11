@@ -19,10 +19,11 @@ KAC 데모데이(2026-10-17) 시연용. 하드웨어 없이 「경보 → AI 판
 - `src/flights.ts` **실제 운항편** — 한국공항공사 「실시간 항공기 운항정보 조회_GW」(data.go.kr 15158625)의 `/arrival` · `/depart`. 장면에 들어갈 때 그 시간대의 실제 편을 붙인다(첫 출발 편 · 곧 착륙할 편 · 1시간 이착륙 수). 기준 공항 `FLIGHT_AIRPORT`(기본 CJJ, 화면에는 이름을 쓰지 않는다). 키는 **디코딩 키(+/=)면 인코딩해서** 넣는다 — 그대로 넣으면 30(등록되지 않은 키). 같은 조회는 10분 기억(개발 계정 하루 5,000건)
 - `src/pages.ts` 역할은 주소가 정한다: `/ops`(= `/`) 관제 — 지도(장면 현장으로 다가간다) · 판단 카드 · 아래 행동 띠(승인/보류 → 종결 → 다음 장면) · ☰(자유 경보 · 두 번 눌러야 하는 처음으로) / `/cam` 로봇 카메라 — 메뉴·단추 없음
 - 소리(`/cam` 폰) — 침입: 로봇 스피커 경고 방송(한국어 Yuna · 영어 Ava, `assets/warning.mp3` → `src/audio.ts`, 다시 만들기 = `scripts/build_audio.sh`) · 조류: 음향 퇴치음 · 해결: 확인음(WebAudio). 관제 폰: 새 경보음. 폰은 한 번 눌러야 소리가 나서 `/cam` 은 처음에 「🔊 소리 켜기」 덮개
+- `src/judge.ts` **필드키퍼 판단** — 경보 때 서버가 계산한다(결정적). 위험도 0~100 = 종류(침입 50 · 조류 35 · 이물질 30 · 드론 30) + 위치(활주로 위 · 접근로 축 30 · 500m 안 20 · 그 밖 10) + 운항 여유(다음 실제 편까지 10분↓ 35 · 30분↓ 25 · 60분↓ 15 · 그 밖 5 · 조회 실패 15). 80↑ 긴급 · 60↑ 높음. 장비 = 탑재 장비로 거른 뒤 가장 빨리 닿는 것(장면 경로와 어긋나면 서버가 뜨지 않는다). **가중치는 가정**이다 — 실증에서 맞춘다. 「왜」 한 줄만 LiteLLM(`LLM_BASE_URL` · `LLM_API_KEY` · `LLM_MODEL`=fieldkeeper-explain(gemma4), 본문 `timeout: 4`) — 입력은 계산값뿐, 입력에 없던 숫자 · 80자 초과 · 실패면 규칙 문장
 - `src/camview.ts` 로봇 카메라 화면 — 시뮬레이션 그림(야간 적외선 톤 · 녹화 표시 · 이동 중 화면 · 장면별 조치: 침입자 추적·경고 방송 / 이물질 수거 / 새 떼 퇴치 / PTZ 드론 추적). 실제 영상이 아니다
 - `src/index.ts` API — `GET /api/state` · `POST /api/scene/next` · `POST /api/decide`(`{decision: approve|hold}`) · `POST /api/close`(관리자 종결) · `POST /api/demo/start`(처음으로) · `POST /api/alerts`(자유 경보). 단계 전환은 읽은 단계 그대로일 때만(두 폰 동시 누름에도 한 번)
 - 단추 잠금 — `DEMO_KEY`(`.dev.vars`, 커밋 안 함)가 있으면 POST 는 헤더 `x-demo-key` 가 맞을 때만. 폰은 열쇠 링크 `/ops?k=…` · `/cam?k=…` 로 한 번 열면 기억한다. 열쇠 없는 화면은 보기 전용
-- `schema.sql` + `migrations/0002_scenes.sql` · `0003_close.sql` — runs(장면 단계) · incidents(경보 · 결정 · 도착 · 종결, 시연 분) · alerts(자유 경보)
+- `schema.sql` + `migrations/0002_scenes.sql` · `0003_close.sql` · `0004_judge.sql` — runs(장면 단계) · incidents(경보 · 판단 · 결정 · 도착 · 종결, 시연 분) · alerts(자유 경보)
 
 ## 로컬
 ```
@@ -30,6 +31,7 @@ npm install
 npx wrangler d1 execute fieldkeeper --local --file=schema.sql
 npx wrangler d1 execute fieldkeeper --local --file=migrations/0002_scenes.sql
 npx wrangler d1 execute fieldkeeper --local --file=migrations/0003_close.sql
+npx wrangler d1 execute fieldkeeper --local --file=migrations/0004_judge.sql
 npx wrangler dev --ip 0.0.0.0 --port 8791     # 같은 와이파이의 폰에서 http://<mbp15 IP>:8791
 ```
 화면 확인 = `node scripts/shot.mjs <주소> <폭> <높이> <출력접두> <ms,ms…>` — 헤드리스 크롬을 원격 디버깅으로 띄워 폰 화면을 흉내 내고 지정 시점마다 찍는다(JS 오류도 보고).

@@ -24,13 +24,14 @@ type Pt = [number, number];
 // 구간 노면 — twy = 포장 유도로(노란 중심선) · grass = 잔디(포장 없음, 화면이 흔들린다)
 export interface Leg { name: string; surface: "twy" | "grass" }
 const pathLen = (p: Pt[]) => p.slice(1).reduce((s, q, i) => s + Math.hypot(q[0] - p[i][0], q[1] - p[i][1]), 0);
-const minutes = (unit: string, p: Pt[]) => (pathLen(p) * M_PER_UNIT) / SPEED_M_PER_MIN[UNIT_TYPE[unit]];
+export const travelMinutes = (unit: string, p: Pt[]) => (pathLen(p) * M_PER_UNIT) / SPEED_M_PER_MIN[UNIT_TYPE[unit]];
 
 // 운항편 조회 — 장면에 들어갈 때 서버가 실제 데이터를 붙인다(src/flights.ts)
 export type FlightQuery =
   | { use: "firstDepart"; from: string; to: string }      // 첫 출발 편
   | { use: "nextArrival"; from: string; to: string }      // 곧 착륙할 편
-  | { use: "window"; from: string; to: string };          // 이 시간대 이착륙 편 수
+  | { use: "window"; from: string; to: string }           // 이 시간대 이착륙 편 수
+  | { use: "next"; from: string; to: string };            // 다음 운항편(도착 · 출발 가운데 가장 이른 것)
 
 export interface Scene extends Spot {
   id: string; min: number; kind: Kind; note: string;
@@ -50,11 +51,12 @@ export interface Scene extends Spot {
   waitText: string; closeLabel: string; closeShort: string; resolveS: number; resolveMin: number;
   held: string;                  // 보류했을 때 — 장비는 대기, 고정 센서로 본다
   flight?: FlightQuery;          // 없으면 운항편을 붙이지 않는다
+  distM?: number;                // 지도 밖 경보의 실제 거리(m) — 지도 표시 자리는 화면 가장자리라 거리 계산에 쓰지 않는다(judge.ts)
 }
 
 const hm = (h: number, m: number) => h * 60 + m;
 const scene = (s: Omit<Scene, "travelMin">): Scene => ({
-  ...s, travelMin: Math.max(0, ...Object.entries(s.paths).map(([u, p]) => minutes(u, p))),
+  ...s, travelMin: Math.max(0, ...Object.entries(s.paths).map(([u, p]) => travelMinutes(u, p))),
 });
 
 export const SCENES: Scene[] = [
@@ -72,6 +74,7 @@ export const SCENES: Scene[] = [
     result: "로봇 1이 침입자 2명을 추적 · 경고 방송으로 멈춰 세움 → 관계기관 도착 · 인계 완료.",
     waitText: "추적 · 경고 방송 중 — 관계기관 도착 대기", closeLabel: "인계 확인 — 종결", closeShort: "인계", resolveS: 16, resolveMin: 8,
     held: "보류 — 로봇 1 대기. 울타리 고정 카메라로 계속 지켜본다.",
+    flight: { use: "next", from: "0420", to: "0900" },
   }),
   scene({
     id: "s2", min: hm(5, 0), kind: "fod", zone: "활주로 중앙부", sensor: "활주로 순찰 로봇 카메라", x: 120, y: 240,
@@ -108,15 +111,16 @@ export const SCENES: Scene[] = [
   }),
   scene({
     id: "s4", min: hm(12, 53), kind: "drone", zone: "남서쪽 경계 밖 2.7km", sensor: "레이더(조류·드론 구분)", x: 11, y: 430,
+    distM: 2700,
     note: "미승인 드론 1대 · 공항 쪽으로 접근",
     today: "2020년 11월 국내 한 공항 — 불법 드론으로 이착륙 세 차례 중단, 11편 지연·1편 회항.",
     todayShort: "11편 지연 · 1편 회항",
     situation: "레이더(조류·드론 구분) — 미승인 드론 1대 · 남서쪽 2.7km · 공항 쪽으로 접근",
-    action: "공항 드론 탐지 카메라로 추적 · 위치와 경로를 관제탑·관계기관에 공유·통보(무력화는 법이 정한 기관의 몫)",
+    action: "공항 드론 탐지 카메라로 추적 · 위치와 경로를 관제탑 · 공항운영자 · 경찰에 공유(퇴치 결정과 실행은 공항운영자 · 관계기관 — 공항시설법 제56조③)",
     approveLabel: "공유·통보 승인",
     cam: { unit: "PTZ", ir: false },
     paths: {},
-    result: "드론 추적 · 관제탑·관계기관에 경로 공유 · 통보 → 드론 이탈 · 기록. 필드키퍼의 범위는 찾고 · 알리고 · 기록까지.",
+    result: "드론 추적 · 관제탑 · 공항운영자 · 경찰에 경로 공유 → 드론 이탈 · 기록. 필드키퍼는 찾고 · 알리고 · 기록한다. 퇴치는 권한 있는 기관이 한다.",
     waitText: "탐지 카메라 추적 중 — 관계기관 통보 · 이탈 대기", closeLabel: "상황 해제 확인 — 종결", closeShort: "상황 해제", resolveS: 8, resolveMin: 5,
     held: "보류 — 관제탑에만 알린다.",
     flight: { use: "window", from: "1253", to: "1353" },

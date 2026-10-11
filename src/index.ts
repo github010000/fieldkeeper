@@ -7,6 +7,7 @@ import { MANUAL_SPOTS, SCENES, isKind } from "./scenario";
 import { simClock, ALERT_READY_S, moveSeconds, type RunClock } from "./timeline";
 import { flightInfo, dayMovements } from "./flights";
 import { WARNING_MP3 } from "./audio";
+import { judgeScene, explain } from "./judge";
 
 const bin = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
@@ -17,6 +18,10 @@ export interface Env {
   // 실제 운항편(flights.ts) — data.go.kr 키(.dev.vars)와 기준 공항(기본 CJJ, 화면에는 이름을 쓰지 않는다)
   DATA_GO_KR_SERVICE_KEY?: string;
   FLIGHT_AIRPORT?: string;
+  // 「왜 이 조치인가」 한 줄 — msu LiteLLM(:4000). 비우면 규칙 문장만 쓴다(judge.ts). 열쇠는 .dev.vars 에만
+  LLM_BASE_URL?: string;
+  LLM_API_KEY?: string;
+  LLM_MODEL?: string;
 }
 
 const json = (o: unknown, status = 200) =>
@@ -69,8 +74,8 @@ export default {
     if (req.method === "GET" && p === "/api/state") {
       const run = await currentRun(env);
       const incidents = run
-        ? (await env.DB.prepare("SELECT scene, alert_sim, flight_json, decision, decided_sim, arrive_sim, closed_sim FROM incidents WHERE run_id = ? ORDER BY scene").bind(run.id).all()).results
-            .map((x: any) => ({ ...x, flight: x.flight_json ? JSON.parse(x.flight_json) : null, flight_json: undefined }))
+        ? (await env.DB.prepare("SELECT scene, alert_sim, flight_json, judge_json, decision, decided_sim, arrive_sim, closed_sim FROM incidents WHERE run_id = ? ORDER BY scene").bind(run.id).all()).results
+            .map((x: any) => ({ ...x, flight: x.flight_json ? JSON.parse(x.flight_json) : null, flight_json: undefined, judge: x.judge_json ? JSON.parse(x.judge_json) : null, judge_json: undefined }))
         : [];
       const manual = run
         ? (await env.DB.prepare("SELECT id, kind, zone, sensor, x, y, sim_min FROM alerts WHERE run_id = ? ORDER BY sim_min").bind(run.id).all()).results
@@ -103,12 +108,14 @@ export default {
       }
       const sc = SCENES[next - 1];
       const flight = sc.flight ? await flightInfo(env, sc.flight, hhmm(sc.min)) : null;
+      // 필드키퍼 판단 — 규칙으로 계산하고(judge.ts), 「왜」 한 줄만 AI 가 쓴다(실패하면 규칙 문장)
+      const judged = await explain(env, next - 1, judgeScene(next - 1, flight));
       r = (await currentRun(env))!;                 // 운항 조회 동안 다른 폰이 넘겼을 수 있다
       if (r.scene !== next - 1) return json({ error: "다른 폰이 먼저 넘겼습니다" }, 409);
       const at = await setPhase(env, r, next, "alert", simClock(r, Date.now(), SC));
       if (!at) return json({ error: "다른 폰이 먼저 넘겼습니다" }, 409);
-      await env.DB.prepare("INSERT INTO incidents (id, run_id, scene, alert_sim, flight_json) VALUES (?, ?, ?, ?, ?)")
-        .bind(newId(), r.id, next, sc.min, flight ? JSON.stringify(flight) : null).run();
+      await env.DB.prepare("INSERT INTO incidents (id, run_id, scene, alert_sim, flight_json, judge_json) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(newId(), r.id, next, sc.min, flight ? JSON.stringify(flight) : null, JSON.stringify(judged)).run();
       return json({ ok: true });
     }
 

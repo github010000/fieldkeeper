@@ -59,6 +59,11 @@ svg.map{display:block;width:100%;height:100%}
 .box b{display:block;font-size:12px;letter-spacing:.3px;margin-bottom:2px}
 .box.today{background:#1a1f26;color:#c9d3dd} .box.today b{color:var(--dim)}
 .box.fk{background:#0f2536;color:#d8ecff} .box.fk b{color:var(--accent)}
+.box.fk b .risk{float:right;font-size:11px;font-weight:800;border-radius:999px;padding:1px 8px;color:#0b1219}
+.risk.r3{background:#ff5c5c} .risk.r2{background:#ffb02e} .risk.r1{background:#8fa3b5}
+.box.fk .parts{font-size:12px;color:#9fb6c9;margin:1px 0 6px} .box.fk .parts em{font-style:normal;color:#d8ecff;font-weight:700}
+.box.fk .chk{margin-top:4px;font-size:13px;color:#7fe0a6}
+.box.fk .why{margin-top:6px;padding-top:6px;border-top:1px solid #1f3b52} .box.fk .why i{font-style:normal;font-size:10.5px;color:#8fa3b5;border:1px solid #2b4a63;border-radius:999px;padding:0 6px;margin-left:6px;white-space:nowrap}
 .box.done{background:#0f2a20;color:#d6f5e6} .box.done b{color:var(--ok)}
 .flight{display:block;margin-top:5px;font-size:13px;color:#ffd27a}
 .flight.fail{color:var(--dim)}
@@ -280,9 +285,20 @@ function flightLine(f){
   if(!f)return "";
   return '<span class="flight'+(f.ok?"":" fail")+'"><i>실제 운항</i>'+esc(f.text)+'</span>';
 }
+// 판단 카드 — 위험도 · 장비 · 「왜」는 서버가 경보 때 계산해 저장한 값(judge.ts). 「왜」가 AI 문장인지 규칙 문장인지 밝힌다
 function judge(sc,i,title){
-  return '<div class="box fk"><b>'+title+'</b><div><span class="lab">상황</span>'+esc(sc.situation)+'</div>'+flightLine(i.flight)+
-    '<div style="margin-top:5px"><span class="lab">조치</span>'+esc(sc.action)+'</div></div>';
+  const j=i.judge;
+  const risk=j?'<span class="risk r'+(j.grade==="긴급"?3:j.grade==="높음"?2:1)+'">위험도 '+j.score+' · '+esc(j.grade)+'</span>':"";
+  let h='<div class="box fk"><b>'+title+risk+'</b>';
+  if(j)h+='<div class="parts">'+j.parts.map((p)=>esc(p.k)+' '+esc(p.v)+' <em>'+p.p+'</em>').join(" · ")+'</div>';
+  h+='<div><span class="lab">상황</span>'+esc(sc.situation)+'</div>'+flightLine(i.flight)+
+    '<div style="margin-top:5px"><span class="lab">조치</span>'+esc(sc.action)+'</div>';
+  if(j){
+    h+='<div style="margin-top:5px"><span class="lab">장비</span>'+esc(j.unitLabel)+' — '+esc(j.pick)+'</div>';
+    if(j.check)h+='<div class="chk">'+esc(j.check)+'</div>';
+    h+='<div class="why"><span class="lab">왜</span>'+esc(j.why)+'<i>'+(j.whySrc==="ai"?"AI 설명":"규칙 문장")+'</i></div>';
+  }
+  return h+'</div>';
 }
 function sceneCard(){
   const st=stage(),sc=scene();
@@ -386,7 +402,7 @@ function sounds(st){
 }
 function tick(){
   $("#clock").textContent=hhmm(sim());$("#date").textContent=kstDate();
-  const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.closed_sim!=null?1:0)).join(),manual.length,run&&run.summary?1:0].join("|");
+  const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.judge?1:0)+(i.closed_sim!=null?1:0)).join(),manual.length,run&&run.summary?1:0].join("|");
   if(key2!==shown){shown=key2;render();
     // 알림 띠는 자유 경보에만 — 장면 경보는 장면 카드가 보여 준다(띠가 아래 행동 단추를 가리지 않게)
     if(ROLE==="ops"){const ms=markers().filter((m)=>m.live||m.free),ids=new Set(markers().map((m)=>m.id));

@@ -61,6 +61,11 @@ export async function flightInfo(env: { DATA_GO_KR_SERVICE_KEY?: string; FLIGHT_
     }
     const [a, d] = await Promise.all([fetchOp(key, ap, "arrival", q.from, q.to), fetchOp(key, ap, "depart", q.from, q.to)]);
     const all = [...a, ...d].sort((x, y) => x.time.localeCompare(y.time));
+    if (q.use === "next") {
+      const f = all[0];
+      if (!f) return { ok: true, text: "오늘 이 시간대 운항 편 없음", flights: [] };
+      return { ok: true, text: `다음 운항 ${f.time} ${f.id}(${f.io === "I" ? f.other + "발 도착" : f.other + "행 출발"}) — 경보 ${minsBetween(sceneTime, f.time)}분 뒤`, flights: [f] };
+    }
     return { ok: true, text: `앞으로 1시간 이착륙 ${all.length}편(도착 ${a.length} · 출발 ${d.length}) 영향 가능`, flights: all.slice(0, 5) };
   } catch (e) {
     return { ok: false, text: `운항 데이터 조회 실패(${(e as Error).message})`, flights: [] };
