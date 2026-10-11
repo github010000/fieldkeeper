@@ -131,6 +131,15 @@ export default {
       if (!at) return json({ error: "이미 결정되었습니다" }, 409);
       await env.DB.prepare("UPDATE incidents SET decision = ?, decided_sim = ?, arrive_sim = ? WHERE run_id = ? AND scene = ?")
         .bind(body.decision, sim, approve ? sim + sc.travelMin : null, r.id, r.scene).run();
+      // 조류 — 승인이 늦어 착륙 전에 퇴치를 못 마치게 됐으면 그 사실과 마감 시각(관제탑 다시 공유)을 판단 기록에 남긴다(화면 delayLate 와 같은 셈)
+      if (approve && sc.kind === "bird") {
+        const row = await env.DB.prepare("SELECT judge_json FROM incidents WHERE run_id = ? AND scene = ?").bind(r.id, r.scene).first<{ judge_json: string | null }>();
+        const j = row?.judge_json ? JSON.parse(row.judge_json) : null;
+        if (j?.race && !j.late && sim + sc.travelMin + j.race.need > j.race.at) {
+          j.lateByDelay = true; j.shareAt = j.race.at - sc.travelMin - j.race.need;
+          await env.DB.prepare("UPDATE incidents SET judge_json = ? WHERE run_id = ? AND scene = ?").bind(JSON.stringify(j), r.id, r.scene).run();
+        }
+      }
       return json({ ok: true });
     }
 

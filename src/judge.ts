@@ -15,6 +15,7 @@ export interface Judgement {
   // 운항 경주 — 로봇 조치가 이 편보다 먼저 끝나야 한다(이물질 = 첫 출발, 조류 = 다음 착륙). 화면이 승인 전엔 「지금 승인하면」, 뒤엔 실제 도착 시각으로 견준다
   race?: { at: number; label: string; need: number } | null;
   late?: boolean;                                  // 경보 즉시 출발해도 그 편이 먼저 온다 → 조치 = actionLate, 관제탑 자동 공유(autoShare)
+  lateByDelay?: boolean; shareAt?: number;         // 승인 순간 기록(index.ts decide) — 승인이 늦어 착륙 전 퇴치를 못 마침 · 그 마감 시각(관제탑 다시 공유)
   why: string; whySrc: "ai" | "rule";
 }
 

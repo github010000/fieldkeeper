@@ -67,7 +67,7 @@ svg.map{display:block;width:100%;height:100%}
 .risk.r3{background:#ff5c5c} .risk.r2{background:#ffb02e} .risk.r1{background:#8fa3b5}
 .box.fk .parts{font-size:12px;color:#9fb6c9;margin:1px 0 6px} .box.fk .parts em{font-style:normal;color:#d8ecff;font-weight:700}
 .box.fk .chk{margin-top:4px;font-size:13px;color:#7fe0a6} .box.fk .chk .late{color:#ff8a8a}
-.box.fk .auto{margin-top:5px;font-size:13px;color:#ffd27a}
+.box.fk .auto{margin-top:5px;font-size:13px;color:#ffd27a} .lnote{color:#ffd27a}
 .status .span{display:block;font-size:13px;color:#c9d3dd;margin-bottom:2px}
 .box.fk .why{margin-top:6px;padding-top:6px;border-top:1px solid #1f3b52} .box.fk .why i{font-style:normal;font-size:10.5px;color:#8fa3b5;border:1px solid #2b4a63;border-radius:999px;padding:0 6px;margin-left:6px;white-space:nowrap}
 .box.done{background:#0f2a20;color:#d6f5e6} .box.done b{color:var(--ok)}
@@ -302,16 +302,26 @@ function judge(sc,i,title){
   if(j)h+='<div class="parts">'+j.parts.map((p)=>esc(p.k)+' '+esc(p.v)+' <em>'+p.p+'</em>').join(" · ")+'</div>';
   h+='<div><span class="lab">상황</span>'+esc(sc.situation)+'</div>'+flightLine(i.flight);
   if(j&&j.late&&sc.autoShare)h+='<div class="auto"><span class="lab">자동</span>'+hhmm(sc.min)+' '+esc(sc.autoShare)+'</div>';
+  if(delayLate(sc,i))h+='<div class="auto"><span class="lab">자동</span>'+hhmm(shareAt(sc,i))+' 승인 지연 — 착륙 전 퇴치 불가, 관제탑에 조류 정보 다시 공유('+esc(j.race.label)+' '+hhmm(j.race.at)+' · 착륙 편 판단은 관제탑)</div>';
   h+='<div style="margin-top:5px"><span class="lab">조치</span>'+esc(actText(sc,i))+'</div>';
   if(j){
     h+='<div style="margin-top:5px"><span class="lab">장비</span>'+esc(j.unitLabel)+' — '+esc(j.pick)+'</div>';
     if(j.race)h+='<div class="chk" id="race">'+raceText(sc,i)+'</div>';else if(j.check)h+='<div class="chk">'+esc(j.check)+'</div>';
-    h+='<div class="why"><span class="lab">왜</span>'+esc(j.why)+'<i>'+(j.whySrc==="ai"?"AI 설명":"규칙 문장")+'</i></div>';
+    h+='<div class="why"><span class="lab">왜</span>'+esc(j.why)+'<i>'+(j.whySrc==="ai"?"AI 설명":"규칙 문장")+(delayLate(sc,i)?" · 경보 시점 판단":"")+'</i></div>';
   }
   return h+'</div>';
 }
 // 조치 문장 — 착륙이 로봇 퇴치보다 먼저 오는 경보면 관제탑 판단 · 다음 편 대비로(judge.ts late)
-function actText(sc,i){return i.judge&&i.judge.late&&sc.actionLate?sc.actionLate:sc.action}
+function actText(sc,i){return isLate(sc,i)&&sc.actionLate?sc.actionLate:sc.action}
+// 승인이 늦어 착륙 전에 퇴치를 못 마치게 됐는가(경보 때는 여유가 있었다) — 승인 전엔 매초, 승인 뒤엔 서버가 승인 순간 기록한 값(lateByDelay)
+function delayLate(sc,i){
+  const j=i.judge;if(!j||!j.race||j.late||sc.kind!=="bird"||i.decision==="hold")return false;
+  if(i.decision==="approve")return !!j.lateByDelay;
+  return sim()+sc.travelMin+j.race.need>j.race.at;
+}
+function isLate(sc,i){return !!(i.judge&&(i.judge.late||delayLate(sc,i)))}
+// 마감 — 이때까지 승인해야 착륙 전에 퇴치가 끝난다(넘기는 순간 관제탑에 다시 공유)
+function shareAt(sc,i){const j=i.judge;return j.shareAt!=null?j.shareAt:j.race.at-sc.travelMin-j.race.need}
 // 운항 경주 — 로봇 조치가 그 편보다 먼저 끝나는가. 승인 전엔 「지금 승인하면」(매초), 승인 뒤엔 실제 도착 시각으로
 function raceText(sc,i){
   const r=i.judge.race,ok0=i.decision==="approve";
@@ -319,10 +329,17 @@ function raceText(sc,i){
   const pre=ok0?"도착 "+hhmm(arr)+" · ":"지금 승인하면 "+hhmm(arr)+" 도착 · ";
   const what=sc.kind==="fod"?"수거":"퇴치";
   return d>=0?esc(pre+what+"를 마쳐도 "+r.label+" "+hhmm(r.at)+"까지 "+dur(d)+" 남는다")
-    :'<span class="late">'+esc(pre+r.label+" "+hhmm(r.at)+"보다 "+dur(-d)+" 늦다 — "+(sc.kind==="bird"?"착륙 편은 관제탑 판단":"관제탑에 알린다"))+'</span>';
+    :'<span class="late">'+esc(pre+what+" 완료 "+hhmm(done)+" — "+r.label+" "+hhmm(r.at)+"보다 "+dur(-d)+" 늦다 · "+(sc.kind==="bird"?"착륙 편은 관제탑 판단":"관제탑에 알린다"))+'</span>';
 }
 // 경보 → 종결 한 줄 — 합계는 칸별 시간을 더하지 않고 종결 − 경보로(반올림 차이가 없게)
 function span(i){return i.closed_sim==null?"":hhmm(i.alert_sim)+" 경보 → "+hhmm(i.closed_sim)+" 종결 · 모두 "+dur(i.closed_sim-i.alert_sim)}
+// 분기 말 — 조류 장면이 관제탑 판단으로 넘어간 경위
+function lateNote(s,i){
+  const j=i.judge;if(!j||s.kind!=="bird")return "";
+  if(j.late)return '<br><span class="lnote">착륙이 먼저 → '+hhmm(s.min)+' 관제탑 즉시 공유</span>';
+  if(j.lateByDelay)return '<br><span class="lnote">승인 지연 → '+hhmm(shareAt(s,i))+' 관제탑 공유, 착륙 편은 관제탑 판단</span>';
+  return "";
+}
 function sceneCard(){
   const st=stage(),sc=scene();
   if(st==="idle")return '<div class="card"><h3>시연 준비</h3><div class="meta">24시간 비행장 — 밤 04:20 침입부터 낮 12:53 드론까지 네 장면. 센서·레이더가 잡으면 필드키퍼가 판단하고, 관리자 한 명이 승인과 종결을 쥔다. 현장 일은 로봇이 한다.</div></div>';
@@ -350,7 +367,7 @@ function summaryCard(){
   const rows=inc.map((i)=>{const s=SCN[i.scene-1],k=KIND[s.kind];
     const d=i.decision==="approve"?"승인":i.decision==="hold"?"보류":"결정 없음";
     return '<div class="rec"><div class="t"><time>'+hhmm(s.min)+'</time><span class="dot" style="background:'+k.color+';width:18px;height:18px;font-size:10px">'+k.mark+'</span>'+esc(k.ko)+'<em>'+d+(i.closed_sim!=null?" · 종결":"")+'</em></div>'+
-      '<div class="d">'+(i.closed_sim!=null?'<b>'+span(i)+'</b><br>':"")+times(i,s)+'</div><div class="o">실제 사례: '+esc(s.todayShort)+'</div></div>'}).join("");
+      '<div class="d">'+(i.closed_sim!=null?'<b>'+span(i)+'</b><br>':"")+times(i,s)+lateNote(s,i)+'</div><div class="o">실제 사례: '+esc(s.todayShort)+'</div></div>'}).join("");
   const birds=inc.filter((i)=>SCN[i.scene-1].kind==="bird");
   const mv=sm.movements;
   const sent=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1].travelMin>0).length,shared=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1].travelMin===0).length;
@@ -426,7 +443,7 @@ function sounds(st){
 function tick(){
   $("#clock").textContent=hhmm(sim());$("#date").textContent=kstDate();
   {const rc=$("#race"),sc=scene(),i=run&&incOf(run.scene);if(rc&&sc&&i&&i.judge&&i.judge.race&&i.decision!=="approve")rc.innerHTML=raceText(sc,i)}
-  const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.judge?1:0)+(i.closed_sim!=null?1:0)).join(),manual.length,run&&run.summary?1:0].join("|");
+  const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.judge?1:0)+(i.closed_sim!=null?1:0)+(i.judge&&i.judge.lateByDelay?1:0)).join(),(scene()&&incOf(run.scene)?delayLate(scene(),incOf(run.scene)):0),manual.length,run&&run.summary?1:0].join("|");
   if(key2!==shown){shown=key2;render();
     // 알림 띠는 자유 경보에만 — 장면 경보는 장면 카드가 보여 준다(띠가 아래 행동 단추를 가리지 않게)
     if(ROLE==="ops"){const ms=markers().filter((m)=>m.live||m.free),ids=new Set(markers().map((m)=>m.id));
