@@ -2,7 +2,7 @@
 // 회차는 장면 단계(scene · phase · phase_at · sim_base)만 저장하고 시연 시각은 그 값에서 계산한다(timeline.ts) — 폰 두 대가 같은 장면을 본다.
 // 한 장면 = 다음 장면 → 경보 → 관리자 결정(승인/보류) → 로봇 출동 · 조치(로봇 카메라 /cam) → 관리자 종결.
 // 사람은 관제의 관리자 한 명 — 처음(승인)과 끝(종결)을 쥔다. 승인 없이 장비가 움직이는 경로는 없다.
-import { dashboardPage, ICON_SVG } from "./pages";
+import { dashboardPage, pageBuild, ICON_SVG } from "./pages";
 import { MANUAL_SPOTS, SCENES, isKind } from "./scenario";
 import { simClock, ALERT_READY_S, moveSeconds, holdSeconds, type RunClock } from "./timeline";
 import { flightInfo, dayMovements } from "./flights";
@@ -88,7 +88,7 @@ export default {
         : [];
       const now = Date.now();
       return json({
-        server_now: now, locked: !!env.DEMO_KEY,
+        server_now: now, build: pageBuild(), locked: !!env.DEMO_KEY,
         run: run && { ...run, summary: run.summary_json ? JSON.parse(run.summary_json) : null, summary_json: undefined },
         sim_min: simClock(run, now, SC, await holdOf(env, run)), incidents, manual,
       });

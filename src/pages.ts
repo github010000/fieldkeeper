@@ -112,6 +112,9 @@ button:active:not(:disabled){transform:translateY(1px)}
 .danger{background:#3a1717;width:100%} .danger.arm{background:#b3261e;color:#fff}
 .voice-btn{flex:none;border:1px solid var(--line);background:#1a2430;color:#ffd27a;border-radius:10px;padding:8px 10px;font-size:13px;font-weight:700;margin-left:8px;white-space:nowrap} .voice-btn.on{color:#7fe0a6;border-color:#2b6b47}
 @media (max-width:699px){.voice-btn .vl{display:none}}
+.revoice{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:25;background:#ffd27a;color:#1a1200;border:0;border-radius:14px;padding:14px 22px;font-size:18px;font-weight:800;box-shadow:0 6px 24px rgba(0,0,0,.5);text-align:center}
+.revoice small{display:block;font-size:12px;font-weight:600;margin-top:2px}
+.newver{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:25;background:#b3261e;color:#fff;border-radius:10px;padding:10px 16px;font-weight:700;margin:0}
 
 /* 역할 띠 — 어느 폰이 무엇인지 늘 보이게 */
 header.band.ops{border-top:4px solid var(--accent)}
@@ -509,9 +512,18 @@ function tick(){
   if(ROLE==="cam"){$("#cam").innerHTML=camNow();$("#camunit").textContent=(scene()&&stage()==="hold")?"고정 센서":scene()&&scene().cam.unit==="PTZ"?"공항 드론 탐지 카메라":"로봇 카메라 "+(scene()?scene().cam.unit:"")}
   else{const pv=document.querySelector(".camprev");if(pv)pv.innerHTML=camNow();drawUnits();moveCam()}
 }
+// 새 버전 — 한 번만 스스로 새로고침한다(같은 지문으로 또 다르면 멈추고 알린다). 새로고침 뒤 소리 · 음성은 다시 눌러야 켜진다
+function newBuild(b){
+  let prev="";try{prev=sessionStorage.getItem("fk_reload")||""}catch(e){}
+  if(prev===b){const m=$("#newver");if(m){m.hidden=false;m.textContent="새 버전 확인 필요 — 화면을 직접 새로고침해 주세요"}return}
+  try{sessionStorage.setItem("fk_reload",b);sessionStorage.setItem("fk_new","1")}catch(e){}
+  location.reload();
+}
+let justUpdated=false;try{justUpdated=sessionStorage.getItem("fk_new")==="1";sessionStorage.removeItem("fk_new")}catch(e){}
 async function poll(){
   try{const t0=Date.now(),r=await fetch("/api/state",{cache:"no-store"}),d=await r.json(),t1=Date.now();
     offset=d.server_now-(t0+t1)/2;
+    if(d.build&&BUILD&&d.build!==BUILD){newBuild(d.build);return}
     if(seen&&(run&&run.id)!==(d.run&&d.run.id))seen=new Set();
     run=d.run;inc=d.incidents;manual=d.manual;locked=d.locked}catch(e){}
 }
@@ -528,7 +540,11 @@ async function post(url,body){
 async function wake(){try{if(navigator.wakeLock&&!wl){wl=await navigator.wakeLock.request("screen");wl.addEventListener("release",()=>wl=null)}}catch(e){}}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")wake()});
 document.addEventListener("click",()=>{wake();if(ROLE==="ops")unlockAudio()},{once:true});
-if(ROLE==="ops"){const vb=$("#voice");vb.onclick=(e)=>{e.stopPropagation();unlockAudio();setVoice(!voiceOn)};
+if(ROLE==="cam"&&justUpdated){const u=$("#unlock small");if(u)u.textContent="새 버전으로 바뀌었습니다 — 소리를 다시 켜 주세요"}
+if(ROLE==="ops"){let was="";try{was=localStorage.getItem("fk_voice")||""}catch(e){}
+  const rv=$("#revoice");if(was==="on"||justUpdated){rv.hidden=false;rv.innerHTML="🔊 음성 안내 다시 켜기"+(justUpdated?"<small>새 버전으로 바뀌었습니다</small>":"");
+    rv.onclick=(e)=>{e.stopPropagation();unlockAudio();setVoice(true);rv.hidden=true}}}
+if(ROLE==="ops"){const vb=$("#voice");vb.onclick=(e)=>{e.stopPropagation();unlockAudio();setVoice(!voiceOn);const rv=$("#revoice");if(rv)rv.hidden=true};
   try{speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>{}}catch(e){}}
 function act(a){
   wake();if(navigator.vibrate)navigator.vibrate(30);
@@ -553,10 +569,19 @@ poll().then(()=>{
   tick();setInterval(tick,100);setInterval(poll,1000)});
 `;
 
-export function dashboardPage(role: "ops" | "cam"): string {
+// 화면 코드 지문 — 배포하면 바뀐다. 열린 화면이 /api/state 의 build 와 자기 BUILD 가 다르면 스스로 새로고침한다(S23 을 새로고침 안 해 옛 코드가 돈 일, 대장 10-11)
+let BUILD_ID = "";
+export function pageBuild(): string {
+  if (BUILD_ID) return BUILD_ID;
+  const src = dashboardPage("ops", "") + dashboardPage("cam", "");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < src.length; i++) { h ^= src.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return (BUILD_ID = h.toString(36));
+}
+export function dashboardPage(role: "ops" | "cam", build = pageBuild()): string {
   const kindButtons = (Object.keys(KIND) as (keyof typeof KIND)[])
     .map((k) => `<button data-kind="${k}"><span class="dot" style="background:${KIND[k].color}">${KIND[k].mark}</span>${KIND[k].ko}</button>`).join("");
-  const data = `const ROLE="${role}",SCN=${JSON.stringify(SCENES)},SCI=${JSON.stringify(SCENES.map((s) => [s.min, s.travelMin, s.resolveS, s.resolveMin]))},` +
+  const data = `const ROLE="${role}",BUILD="${build}",SCN=${JSON.stringify(SCENES)},SCI=${JSON.stringify(SCENES.map((s) => [s.min, s.travelMin, s.resolveS, s.resolveMin]))},` +
     `KIND=${JSON.stringify(KIND)},UNITS=${JSON.stringify(UNITS)},VW=${VIEW.w},VH=${VIEW.h};\n${simClock.toString()}\n`;
   const head = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -591,6 +616,7 @@ export function dashboardPage(role: "ops" | "cam"): string {
     <p id="msg" class="msg"></p>
   </section>
 </main>
+<button id="revoice" class="revoice" hidden></button><p id="newver" class="newver" hidden></p>
 <div id="toast" class="toast off" role="status" aria-live="assertive"><span class="dot"></span><div><b></b><span class="sub"></span></div></div>
 <div id="sheet-bg" class="sheet-bg" hidden></div>
 <div id="sheet" class="sheet" hidden>
