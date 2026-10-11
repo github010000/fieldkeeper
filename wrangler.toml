@@ -1,0 +1,10 @@
+# 필드키퍼 MVP — Worker 한 개(화면 + API) + D1. 추임새와 같은 구조(KAC 데모데이 10-17 시연용)
+# 실행은 msu 의 wrangler dev(로컬 D1)다 — Cloudflare 에 배포하지 않으므로 database_id 는 자리표시다(Pass 4 에서 정한다)
+name = "fieldkeeper"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fieldkeeper"
+database_id = "00000000-0000-0000-0000-000000000000"
