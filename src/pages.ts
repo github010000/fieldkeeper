@@ -239,6 +239,9 @@ function speak(text){
   try{const u=new SpeechSynthesisUtterance(text);u.lang="ko-KR";u.rate=1.05;const v=koVoice();if(v)u.voice=v;speechSynthesis.speak(u)}catch(e){}
 }
 function sayOnce(k,text){if(said.has(k))return;said.add(k);speak(text)}
+// 읽던 안내를 끊는다 — 단추를 누르거나 단계가 바뀌면 앞 안내는 낡은 말이다(승인했는데 「승인을 기다립니다」를 끝까지 읽던 일, 대장 10-11)
+let pressedAt=0,spokeStage="";
+function hush(){window.__said.push({sim:Math.round(sim()*60)/60,text:"(끊음)"});try{speechSynthesis.cancel()}catch(e){}}
 function setVoice(on){voiceOn=on;try{localStorage.setItem("fk_voice",on?"on":"off")}catch(e){}
   const b=$("#voice");if(b){b.innerHTML=on?'🔊<span class="vl"> 음성 켜짐</span>':'🔇<span class="vl"> 음성 안내 켜기</span>';b.classList.toggle("on",on)}
   if(on)speak("음성 안내를 켰습니다.");else try{speechSynthesis.cancel()}catch(e){}}
@@ -255,6 +258,8 @@ function alertSpk(sc,i){
 function announce(){
   if(ROLE!=="ops"||!run)return;
   const sc=scene(),st=stage();if(!sc)return;
+  // 단계가 바뀌면 끊는다 — 다만 내가 방금 누른 단추의 확인 한 마디(2.5초)는 살린다
+  const sk=run.id+"|"+run.scene+"|"+st;if(spokeStage&&sk!==spokeStage&&Date.now()-pressedAt>2500)hush();spokeStage=sk;
   const i=incOf(run.scene);if(!i)return;
   const b=run.id+"|"+run.scene,j=i.judge,r=j&&j.race;
   if(st==="decide"&&!i.decision){
@@ -548,6 +553,8 @@ if(ROLE==="ops"){const vb=$("#voice");vb.onclick=(e)=>{e.stopPropagation();unloc
   try{speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>{}}catch(e){}}
 function act(a){
   wake();if(navigator.vibrate)navigator.vibrate(30);
+  if(ROLE==="ops"){hush();pressedAt=Date.now();const sc=scene();
+    if(a==="approve"&&sc)speak(spk(sc.approveLabel)+".");else if(a==="hold")speak("보류.");else if(a==="close")speak("종결.")}
   if(a==="next")post("/api/scene/next");
   else if(a==="approve"||a==="hold")post("/api/decide",{decision:a});
   else if(a==="close")post("/api/close");
