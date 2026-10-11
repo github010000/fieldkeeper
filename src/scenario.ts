@@ -16,13 +16,13 @@ export interface Spot { zone: string; sensor: string; x: number; y: number }
 
 import { M_PER_UNIT } from "./airfield";
 
-// 시뮬레이션 가정 — 지도 1칸 = 10m(airfield.ts), 지상 로봇 15km/h, 드론 60km/h. 이동 시간(시연 분)은 경로 길이에서 계산한다
-const SPEED_M_PER_MIN = { robot: 15000 / 60, drone: 60000 / 60 } as const;
-const UNIT_TYPE: Record<string, "robot" | "drone"> = { R1: "robot", R2: "robot", D1: "drone" };
+// 시뮬레이션 가정 — 지도 1칸 = 10m(airfield.ts), 지상 로봇 15km/h. 이동 시간(시연 분)은 경로 길이에서 계산한다
+const SPEED_M_PER_MIN = { robot: 15000 / 60 } as const;
+const UNIT_TYPE: Record<string, "robot"> = { R1: "robot", R2: "robot" };
 
 type Pt = [number, number];
-// 구간 노면 — twy = 포장 유도로(노란 중심선) · grass = 잔디(포장 없음, 화면이 흔들린다) · air = 비행(드론)
-export interface Leg { name: string; surface: "twy" | "grass" | "air" }
+// 구간 노면 — twy = 포장 유도로(노란 중심선) · grass = 잔디(포장 없음, 화면이 흔들린다)
+export interface Leg { name: string; surface: "twy" | "grass" }
 const pathLen = (p: Pt[]) => p.slice(1).reduce((s, q, i) => s + Math.hypot(q[0] - p[i][0], q[1] - p[i][1]), 0);
 const minutes = (unit: string, p: Pt[]) => (pathLen(p) * M_PER_UNIT) / SPEED_M_PER_MIN[UNIT_TYPE[unit]];
 
@@ -42,6 +42,7 @@ export interface Scene extends Spot {
   cam: { unit: string; ir: boolean };  // 로봇 카메라 화면(/cam) — 어느 장비의 눈인가 · 야간 적외선 톤인가
   paths: Record<string, Pt[]>;   // 승인 뒤 움직이는 장비와 경로(대기소 → 현장)
   legs?: Record<string, Leg[]>;  // 경로 구간마다 이름 · 노면 — 로봇 카메라 이동 화면(내비 안내 · 꺾임)에 쓴다
+  homes?: Record<string, Pt>;    // 이 장면부터 장비가 대기하는 곳(로봇 2 = 새벽 수거 뒤 북쪽 조류 퇴치 거점)
   travelMin: number;             // 가장 늦게 도착하는 장비 기준(시연 분)
   result: string;                // 도착 뒤 — 카메라로 보이는 조치(해결된 모습)
   // 종결 조건 — 로봇이 도착해도 바로 끝나지 않는다(침입자는 관계기관이 넘겨받아야 끝난다).
@@ -83,7 +84,7 @@ export const SCENES: Scene[] = [
     cam: { unit: "R2", ir: true },
     paths: { R2: [[76, 330], [102, 330], [102, 240], [117, 240]] },
     legs: { R2: [{ name: "대기소 연결로", surface: "twy" }, { name: "유도로 A", surface: "twy" }, { name: "유도로 A3", surface: "twy" }] },
-    result: "이물질 1건 수거 · 전후 사진 기록. 관리자가 카메라로 확인하면 「활주로 이상 없음」.",
+    result: "이물질 1건 수거 · 전후 사진 기록. 관리자가 카메라로 확인하면 「활주로 이상 없음」. 로봇 2는 북쪽 조류 퇴치 거점으로 옮겨 아침을 대기한다.",
     waitText: "수거 중", closeLabel: "수거 확인 — 활주로 사용 가능", closeShort: "수거 확인", resolveS: 6, resolveMin: 2,
     held: "보류 — 로봇 2 대기. 첫 편 전에 다시 판단한다.",
     flight: { use: "firstDepart", from: "0500", to: "1000" },
@@ -94,14 +95,15 @@ export const SCENES: Scene[] = [
     today: "2024년 12월 국내 한 공항 — 조류 경보 08:57, 사고 09:03. 경보에서 사고까지 6분.",
     todayShort: "경보 → 사고 6분",
     situation: "조류 레이더 — 새 떼 약 30마리 · 북쪽 접근로(활주로 18 접근 경로)로 이동",
-    action: "북쪽 거점 드론 1 출동 — 음향·조명으로 새 떼를 접근로 밖으로 몰아낸다",
-    approveLabel: "드론 1 출동 승인",
-    cam: { unit: "D1", ir: false },
-    paths: { D1: [[166, 128], [126, 24]] },
-    legs: { D1: [{ name: "북쪽 접근로", surface: "air" }] },
+    action: "북쪽 거점 로봇 2 출동 — 출발과 함께 음파퇴치기(도달 3km) 가동, 접근로 앞 울타리에서 폭음경보기로 새 떼를 몰아낸다",
+    approveLabel: "로봇 2 퇴치 출동 승인",
+    cam: { unit: "R2", ir: false },
+    homes: { R2: [156, 66] },
+    paths: { R2: [[156, 66], [156, 42], [134, 38]] },
+    legs: { R2: [{ name: "북쪽 순찰로", surface: "grass" }, { name: "접근로 앞 울타리", surface: "grass" }] },
     result: "새 떼 접근로 밖으로 이동 · 퇴치 기록. 같은 무리가 돌아오면 다시 간다.",
-    waitText: "음향·조명 퇴치 중", closeLabel: "접근로 정상 확인 — 종결", closeShort: "접근로 정상", resolveS: 8, resolveMin: 2,
-    held: "보류 — 드론 1 대기. 관제탑에 조류 정보를 전한다.",
+    waitText: "음파·폭음 퇴치 중", closeLabel: "접근로 정상 확인 — 종결", closeShort: "접근로 정상", resolveS: 8, resolveMin: 2,
+    held: "보류 — 로봇 2 거점 대기. 관제탑에 조류 정보를 전한다.",
     flight: { use: "nextArrival", from: "0857", to: "0957" },
   }),
   scene({
@@ -110,12 +112,12 @@ export const SCENES: Scene[] = [
     today: "2020년 11월 국내 한 공항 — 불법 드론으로 이착륙 세 차례 중단, 11편 지연·1편 회항.",
     todayShort: "11편 지연 · 1편 회항",
     situation: "레이더(조류·드론 구분) — 미승인 드론 1대 · 남서쪽 2.7km · 공항 쪽으로 접근",
-    action: "PTZ 카메라로 추적 · 위치와 경로를 관제탑·관계기관에 공유·통보(무력화는 법이 정한 기관의 몫)",
+    action: "공항 드론 탐지 카메라로 추적 · 위치와 경로를 관제탑·관계기관에 공유·통보(무력화는 법이 정한 기관의 몫)",
     approveLabel: "공유·통보 승인",
     cam: { unit: "PTZ", ir: false },
     paths: {},
     result: "드론 추적 · 관제탑·관계기관에 경로 공유 · 통보 → 드론 이탈 · 기록. 필드키퍼의 범위는 찾고 · 알리고 · 기록까지.",
-    waitText: "PTZ 추적 중 — 관계기관 통보 · 이탈 대기", closeLabel: "상황 해제 확인 — 종결", closeShort: "상황 해제", resolveS: 8, resolveMin: 5,
+    waitText: "탐지 카메라 추적 중 — 관계기관 통보 · 이탈 대기", closeLabel: "상황 해제 확인 — 종결", closeShort: "상황 해제", resolveS: 8, resolveMin: 5,
     held: "보류 — 관제탑에만 알린다.",
     flight: { use: "window", from: "1253", to: "1353" },
   }),

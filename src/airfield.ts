@@ -5,11 +5,11 @@
 export const VIEW = { w: 220, h: 470 };
 export const M_PER_UNIT = 10;
 
-// 장비 거점 — 지상 로봇 2대는 소방대 옆 대기소, 드론 1대는 북쪽 접근로 가까운 드론 거점
+// 장비 거점 — 지상 로봇 2대는 소방대 옆 대기소. 북쪽 접근로 가까이 조류 퇴치 거점(로봇 2가 새벽 수거 뒤 옮겨 대기 — scenario.ts homes)
+// 조류 퇴치에 드론은 쓰지 않는다(대장 10-11): 로봇에 폭음경보기 · 음파퇴치기를 싣는다
 export const UNITS = [
   { id: "R1", type: "robot", label: "로봇 1", x: 62, y: 330 },
   { id: "R2", type: "robot", label: "로봇 2", x: 76, y: 330 },
-  { id: "D1", type: "drone", label: "드론 1", x: 166, y: 128 },
 ] as const;
 
 const RWY = { x: 120, y0: 100, y1: 380, w: 6 };        // 활주로(중심선 x)
@@ -59,8 +59,8 @@ export function mapSvg(): string {
   <text class="lbl" x="54" y="302">소방대</text>
   <rect class="base" x="54" y="322" width="30" height="16" rx="2"/>
   <text class="lbl" x="69" y="348">로봇 대기소</text>
-  <circle class="dock" cx="166" cy="128" r="7"/>
-  <text class="lbl" x="166" y="143">드론 거점</text>
+  <rect class="base" x="146" y="58" width="20" height="16" rx="2"/>
+  <text class="lbl" x="156" y="84">조류 퇴치 거점</text>
   <g class="radar">
     <circle class="sweep" cx="170" cy="222" r="3.5"/>
     <circle cx="170" cy="222" r="3.5"/>

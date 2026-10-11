@@ -186,11 +186,14 @@ const sfx={
   depart(){tone(523,0.12,"square",0,0.12);tone(784,0.18,"square",0.16,0.12)},        // 출발 신호
   caution(){tone(1400,0.08,"sine",0,0.07)},                                          // 이동 중 주의 비프
   tick(){tone(2300,0.025,"square",0,0.08)},tock(){tone(1700,0.025,"square",0,0.08)}, // 꺾기 전 깜빡이
+  boom(){if(!actx)return;const t=actx.currentTime,n=actx.sampleRate*0.9,b=actx.createBuffer(1,n,actx.sampleRate),d=b.getChannelData(0);   // 폭음경보기
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);const s=actx.createBufferSource(),f=actx.createBiquadFilter(),g=actx.createGain();
+    f.type="lowpass";f.frequency.value=900;g.gain.value=0.9;s.buffer=b;s.connect(f).connect(g).connect(actx.destination);s.start(t);tone(70,0.5,"sine",0,0.5,40)},
   servo(){tone(320,1.2,"sawtooth",0,0.035,720);tone(720,1.0,"sawtooth",1.3,0.035,380)}, // 수거 팔 펴기 · 접기
 };
-// 계속 나는 소리(구동음) — 로봇 모터 · 드론 프로펠러 · 멀리 있는 침입 드론. 폰 스피커는 100Hz 아래를 거의 못 내서 배음을 섞는다
-const ENG={robot:[[96,"sawtooth"],[192,"square"]],drone:[[210,"sawtooth"],[217,"sawtooth"]],far:[[240,"sawtooth"],[247,"sawtooth"]]};
-const ENG_G={robot:0.06,drone:0.045,far:0.02},ENG_F={robot:1100,drone:1600,far:900};
+// 계속 나는 소리(구동음) — 로봇 모터 · 멀리 있는 침입 드론. 폰 스피커는 100Hz 아래를 거의 못 내서 배음을 섞는다
+const ENG={robot:[[96,"sawtooth"],[192,"square"]],far:[[240,"sawtooth"],[247,"sawtooth"]]};
+const ENG_G={robot:0.06,far:0.02},ENG_F={robot:1100,far:900};
 let eng=null;
 function engine(want){
   if(eng&&eng.key!==want){const e=eng,t=actx.currentTime;eng=null;
@@ -223,6 +226,8 @@ function along(path,f){
 function unitPos(){
   const st=stage(),sc=scene(),pos={};
   for(const u of UNITS)pos[u.id]=[u.x,u.y];
+  // 대기 자리 — 지금 장면까지 정해진 homes(로봇 2 = 새벽 수거 뒤 북쪽 조류 퇴치 거점)
+  if(run)for(let n=1;n<=Math.min(run.scene,SCN.length);n++){const h=SCN[n-1].homes;if(h)for(const id in h)pos[id]=h[id]}
   if(sc&&(st==="moving"||st==="acting"||st==="resolved"))for(const id in sc.paths)pos[id]=along(sc.paths[id],st==="moving"?el()/mv(sc.travelMin):1);
   return pos;
 }
@@ -230,8 +235,8 @@ function drawUnits(){
   const g=$("#units");if(!g)return;g.innerHTML="";const pos=unitPos();
   for(const u of UNITS){
     const [x,y]=pos[u.id],t=svgEl("g",{class:"unit",transform:"translate("+x.toFixed(1)+" "+y.toFixed(1)+")"},g);
-    if(u.type==="drone")svgEl("path",{d:"M0,-5.5 L5.5,4 L-5.5,4 Z"},t);else svgEl("rect",{x:-5,y:-5,width:10,height:10,rx:2},t);
-    svgEl("text",{y:u.type==="drone"?1:0},t).textContent=u.id;
+    svgEl("rect",{x:-5,y:-5,width:10,height:10,rx:2},t);
+    svgEl("text",{y:0},t).textContent=u.id;
   }
 }
 function markers(){
@@ -363,14 +368,15 @@ function sounds(st){
   if(ROLE!=="cam"){engine(null);if(run&&sc&&st==="decide")once(run.id+"|"+run.scene+"|alert",sfx.alert);return}
   if(!run||!sc){engine(null);return}
   const k=run.id+"|"+run.scene,e=el(),t=e-mv(sc.travelMin);let want=null;
-  if(st==="moving"&&sc.paths[sc.cam.unit]){                 // 경로가 있는 장비만(PTZ 카메라는 움직이지 않는다)
-    const air=sc.cam.unit==="D1";want=(air?"drone":"robot")+"|"+k;
+  if(st==="moving"&&sc.paths[sc.cam.unit]){                 // 경로가 있는 장비만(드론 탐지 카메라는 움직이지 않는다)
+    want="robot|"+k;
     once(k+"|depart",sfx.depart);
-    if(!air)once(k+"|c"+Math.floor(e/1.2),sfx.caution);
+    once(k+"|c"+Math.floor(e/1.2),sfx.caution);
+    if(sc.kind==="bird"&&e>0.6)once(k+"|deter",sfx.deter);   // 조류 — 출발과 함께 음파퇴치기
     const P=camPose(sc,e/mv(sc.travelMin));                  // 꺾기 직전 깜빡이 — 내비 안내가 노랗게 바뀌는 때와 같다
     if(P&&P.next&&P.next.dist<14){const n=Math.floor(e*2.8);once(k+"|t"+n,n%2?sfx.tock:sfx.tick)}
   }
-  if(st==="acting"&&t>0.3){if(sc.kind==="intrusion")once(k+"|warn",sfx.warn);if(sc.kind==="bird")once(k+"|deter",sfx.deter)}
+  if(st==="acting"&&t>0.3){if(sc.kind==="intrusion")once(k+"|warn",sfx.warn);if(sc.kind==="bird"){once(k+"|deter",sfx.deter);const n=Math.floor(t/2.6);if(t<sc.resolveS)once(k+"|boom"+n,sfx.boom)}}
   if(st==="acting"&&sc.kind==="fod"&&t>2.5)once(k+"|servo",sfx.servo);
   if(st==="acting"&&sc.kind==="drone")want="far|"+k;
   if(st==="resolved")once(k+"|chime",sfx.chime);
@@ -387,7 +393,7 @@ function tick(){
     else if(st==="moving"&&lastStage!=="moving"&&lastStage&&navigator.vibrate)navigator.vibrate([200,80,200]);
     lastStage=st}
   sounds(st);
-  if(ROLE==="cam"){$("#cam").innerHTML=camNow();$("#camunit").textContent=(scene()&&stage()==="hold")?"고정 센서":scene()&&scene().cam.unit==="PTZ"?"PTZ 카메라":"로봇 카메라 "+(scene()?scene().cam.unit:"")}
+  if(ROLE==="cam"){$("#cam").innerHTML=camNow();$("#camunit").textContent=(scene()&&stage()==="hold")?"고정 센서":scene()&&scene().cam.unit==="PTZ"?"공항 드론 탐지 카메라":"로봇 카메라 "+(scene()?scene().cam.unit:"")}
   else{const pv=document.querySelector(".camprev");if(pv)pv.innerHTML=camNow();drawUnits();moveCam()}
 }
 async function poll(){
