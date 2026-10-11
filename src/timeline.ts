@@ -1,34 +1,32 @@
-// 시연 시계 — 「시작한 실제 시각」 하나에서 지금 시연 시각을 계산한다.
-// 서버와 화면이 같은 함수(simAt)를 쓴다: 새로고침해도, 폰 두 대가 따로 열어도 같은 시각을 본다.
-// 경보 사이 빈 시간은 빨리 감고(FAST 초), 경보 앞뒤 W 분은 천천히(SLOW 초) 지나간다.
-import { SCENARIO } from "./scenario";
+// 시연 시계 — 장면 단계(phase)와 그 단계가 시작된 실제 시각(phase_at)에서 지금 시연 시각을 계산한다.
+// 서버와 화면이 같은 함수(simClock)를 쓴다: 새로고침해도, 폰 두 대가 따로 열어도 같은 시각을 본다.
+//   idle     04:00 에 멈춰 있다
+//   alert    「다음 장면」을 누른 뒤 3초 동안 장면 시각까지 빨리 감고, 경보에서 멈춘 뒤로는 실제 1초 = 시연 10초로 흐른다(승인 대기)
+//   dispatch 승인 뒤 장비 이동 — 이동 시간(travelMin)을 실제 6초에 보여 주고, 도착 뒤엔 다시 1초 = 10초
+//   hold     보류 — 1초 = 10초
+//   summary  분기 말 — 멈춤
 
-export const START_MIN = 4 * 60;       // 04:00
-export const END_MIN = 13 * 60 + 30;   // 13:30 — 이후로는 멈춰 있다(손 경보는 계속 띄울 수 있다)
-const FAST = 6, SLOW = 8, W = 2;
+export const START_MIN = 4 * 60;
 
-export type Keyframe = [number, number]; // [실제 경과 초, 시연 분]
+export interface RunClock { scene: number; phase: string; phase_at: number; sim_base: number }
 
-export const KEYFRAMES: Keyframe[] = (() => {
-  const kf: Keyframe[] = [[0, START_MIN]];
-  let t = 0;
-  for (const e of SCENARIO) {
-    t += FAST; kf.push([t, e.min - W]);
-    t += SLOW; kf.push([t, e.min + W]);
+// 화면에도 그대로 실린다(toString) — 바깥 이름을 쓰지 말 것. sc = 장면별 [시각(분), 이동 시간(분)]
+export function simClock(r: RunClock | null, now: number, sc: [number, number][]): number {
+  const TRAVEL = 3, W = 1 / 6;
+  if (!r || r.phase === "idle") return 240;
+  const e = Math.max(0, (now - r.phase_at) / 1000);
+  if (r.phase === "alert") {
+    const m = sc[r.scene - 1][0];
+    return e < TRAVEL ? r.sim_base + ((m - r.sim_base) * e) / TRAVEL : m + (e - TRAVEL) * W;
   }
-  t += FAST; kf.push([t, END_MIN]);
-  return kf;
-})();
-
-// 화면에도 그대로 실린다(toString) — 바깥 이름을 쓰지 말 것
-export function simAt(kf: Keyframe[], sec: number): number {
-  if (sec <= kf[0][0]) return kf[0][1];
-  for (let i = 1; i < kf.length; i++) {
-    const [t1, m1] = kf[i];
-    if (sec <= t1) {
-      const [t0, m0] = kf[i - 1];
-      return m0 + ((sec - t0) / (t1 - t0)) * (m1 - m0);
-    }
+  if (r.phase === "dispatch") {
+    const tm = sc[r.scene - 1][1], move = tm > 0 ? 6 : 1;
+    return e < move ? r.sim_base + (tm * e) / move : r.sim_base + tm + (e - move) * W;
   }
-  return kf[kf.length - 1][1];
+  if (r.phase === "hold") return r.sim_base + e * W;
+  return r.sim_base;
 }
+
+// 경보 단계에서 빨리 감기가 끝났는가(승인 단추를 여는 기준) · 출동이 끝났는가(다음 장면을 여는 기준)
+export const ALERT_READY_S = 3;
+export const moveSeconds = (travelMin: number) => (travelMin > 0 ? 6 : 1);

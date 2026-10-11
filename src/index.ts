@@ -1,13 +1,18 @@
-// 필드키퍼 MVP — 라우터와 API(Pass 1: 지도 · 시나리오 경보 · 손 경보).
-// 시연 회차는 「시작한 실제 시각」만 저장하고, 시나리오 경보는 시각에서 계산한다 — 그래서 매번 똑같이 재생된다.
+// 필드키퍼 MVP — 라우터와 API(장면 진행).
+// 회차는 장면 단계(scene · phase · phase_at · sim_base)만 저장하고 시연 시각은 그 값에서 계산한다(timeline.ts) — 폰 두 대가 같은 장면을 본다.
+// 한 장면 = 다음 장면(관제) → 경보 → 사람의 결정(현장: 승인/보류) → 출동 → 결과. 승인 없이 장비가 움직이는 경로는 없다.
 import { dashboardPage, ICON_SVG } from "./pages";
-import { MANUAL_SPOTS, isKind } from "./scenario";
-import { KEYFRAMES, simAt } from "./timeline";
+import { MANUAL_SPOTS, SCENES, isKind } from "./scenario";
+import { simClock, ALERT_READY_S, moveSeconds, type RunClock } from "./timeline";
+import { flightInfo, dayMovements } from "./flights";
 
 export interface Env {
   DB: D1Database;
-  // 단추 잠금 — 시연 시작·경보 발생은 이 열쇠(헤더 x-demo-key)가 맞을 때만. 비우면 잠그지 않는다(로컬). 값은 .dev.vars 에만 둔다
+  // 단추 잠금 — 장면 진행·결정·자유 경보는 이 열쇠(헤더 x-demo-key)가 맞을 때만. 비우면 잠그지 않는다(로컬). 값은 .dev.vars 에만 둔다
   DEMO_KEY?: string;
+  // 실제 운항편(flights.ts) — data.go.kr 키(.dev.vars)와 기준 공항(기본 CJJ, 화면에는 이름을 쓰지 않는다)
+  DATA_GO_KR_SERVICE_KEY?: string;
+  FLIGHT_AIRPORT?: string;
 }
 
 const json = (o: unknown, status = 200) =>
@@ -23,55 +28,109 @@ const MANIFEST = JSON.stringify({
 
 const authorized = (req: Request, env: Env) => !env.DEMO_KEY || req.headers.get("x-demo-key") === env.DEMO_KEY;
 const NOKEY = () => json({ error: "열쇠가 맞지 않습니다" }, 403);
-
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+const SC: [number, number][] = SCENES.map((s) => [s.min, s.travelMin]);
+const hhmm = (m: number) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(Math.floor(m % 60)).padStart(2, "0");
 
-interface RunRow { id: string; started_at: number }
+interface RunRow extends RunClock { id: string; started_at: number; summary_json: string | null }
 
 async function currentRun(env: Env): Promise<RunRow | null> {
-  return await env.DB.prepare("SELECT id, started_at FROM runs ORDER BY started_at DESC LIMIT 1").first<RunRow>();
+  return await env.DB.prepare("SELECT id, started_at, scene, phase, phase_at, sim_base, summary_json FROM runs ORDER BY started_at DESC LIMIT 1").first<RunRow>();
+}
+async function newRun(env: Env): Promise<RunRow> {
+  const now = Date.now();
+  const r: RunRow = { id: newId(), started_at: now, scene: 0, phase: "idle", phase_at: now, sim_base: 240, summary_json: null };
+  await env.DB.prepare("INSERT INTO runs (id, started_at, scene, phase, phase_at, sim_base) VALUES (?, ?, 0, 'idle', ?, 240)").bind(r.id, now, now).run();
+  return r;
+}
+// 단계 바꾸기 — 읽은 단계 그대로일 때만(두 폰이 동시에 눌러도 한 번만 넘어간다)
+async function setPhase(env: Env, r: RunRow, scene: number, phase: string, simBase: number, extra = ""): Promise<number | null> {
+  const at = Date.now();
+  const res = await env.DB.prepare(`UPDATE runs SET scene = ?, phase = ?, phase_at = ?, sim_base = ?${extra ? ", summary_json = ?" : ""} WHERE id = ? AND phase = ? AND phase_at = ?`)
+    .bind(...[scene, phase, at, simBase, ...(extra ? [extra] : []), r.id, r.phase, r.phase_at]).run();
+  return res.meta.changes === 1 ? at : null;
 }
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    const p = url.pathname;
+    const p = new URL(req.url).pathname;
 
     if (req.method === "GET" && p === "/") return html(dashboardPage());
     if (p === "/manifest.webmanifest") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json" } });
     if (p === "/icon.svg") return new Response(ICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
 
-    // 지금 회차와 손 경보 — 화면이 1초마다 부른다. 시각 계산은 화면이 하고, server_now 로 폰 시계 차이를 맞춘다
+    // 지금 회차 · 사건 기록 · 자유 경보 — 화면이 1초마다 부른다. server_now 로 폰 시계 차이를 맞춘다
     if (req.method === "GET" && p === "/api/state") {
       const run = await currentRun(env);
+      const incidents = run
+        ? (await env.DB.prepare("SELECT scene, alert_sim, flight_json, decision, decided_sim, arrive_sim FROM incidents WHERE run_id = ? ORDER BY scene").bind(run.id).all()).results
+            .map((x: any) => ({ ...x, flight: x.flight_json ? JSON.parse(x.flight_json) : null, flight_json: undefined }))
+        : [];
       const manual = run
-        ? (await env.DB.prepare("SELECT id, kind, zone, sensor, x, y, sim_min FROM alerts WHERE run_id = ? ORDER BY sim_min")
-            .bind(run.id).all()).results
+        ? (await env.DB.prepare("SELECT id, kind, zone, sensor, x, y, sim_min FROM alerts WHERE run_id = ? ORDER BY sim_min").bind(run.id).all()).results
         : [];
       const now = Date.now();
-      return json({ server_now: now, locked: !!env.DEMO_KEY, run, sim_min: run ? simAt(KEYFRAMES, (now - run.started_at) / 1000) : null, manual });
+      return json({
+        server_now: now, locked: !!env.DEMO_KEY,
+        run: run && { ...run, summary: run.summary_json ? JSON.parse(run.summary_json) : null, summary_json: undefined },
+        sim_min: simClock(run, now, SC), incidents, manual,
+      });
     }
 
-    // 시연 시작(= 처음부터 다시) — 새 회차 한 줄. 지난 회차와 그 손 경보는 지우지 않는다
-    if (req.method === "POST" && p === "/api/demo/start") {
-      if (!authorized(req, env)) return NOKEY();
-      const run = { id: newId(), started_at: Date.now() };
-      await env.DB.prepare("INSERT INTO runs (id, started_at) VALUES (?, ?)").bind(run.id, run.started_at).run();
-      return json({ run });
+    if (req.method !== "POST") return new Response("없는 주소입니다", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
+    if (!authorized(req, env)) return NOKEY();
+
+    // 처음으로 — 새 회차(04:00, 장면 전). 지난 회차와 기록은 남긴다
+    if (p === "/api/demo/start") return json({ run: await newRun(env) });
+
+    // 다음 장면(관제) — 경보로 빨리 감기. 장면이 끝났거나(출동 끝 · 보류) 시작 전일 때만
+    if (p === "/api/scene/next") {
+      let r = (await currentRun(env)) ?? (await newRun(env));
+      const now = Date.now(), e = (now - r.phase_at) / 1000;
+      const cur = r.scene > 0 ? SCENES[r.scene - 1] : null;
+      if (r.phase === "alert") return json({ error: "현장의 결정을 기다리는 중입니다" }, 409);
+      if (r.phase === "dispatch" && cur && e < moveSeconds(cur.travelMin)) return json({ error: "장비가 이동 중입니다" }, 409);
+      if (r.phase === "summary") return json({ error: "모든 장면이 끝났습니다 — ☰ 메뉴의 「처음으로」" }, 409);
+      const sim = simClock(r, now, SC), next = r.scene + 1;
+      if (next > SCENES.length) {
+        const movements = await dayMovements(env);
+        const at = await setPhase(env, r, next, "summary", sim, JSON.stringify({ movements }));
+        return at ? json({ ok: true }) : json({ error: "다른 폰이 먼저 넘겼습니다" }, 409);
+      }
+      const sc = SCENES[next - 1];
+      const flight = sc.flight ? await flightInfo(env, sc.flight, hhmm(sc.min)) : null;
+      r = (await currentRun(env))!;                 // 운항 조회 동안 다른 폰이 넘겼을 수 있다
+      if (r.scene !== next - 1) return json({ error: "다른 폰이 먼저 넘겼습니다" }, 409);
+      const at = await setPhase(env, r, next, "alert", simClock(r, Date.now(), SC));
+      if (!at) return json({ error: "다른 폰이 먼저 넘겼습니다" }, 409);
+      await env.DB.prepare("INSERT INTO incidents (id, run_id, scene, alert_sim, flight_json) VALUES (?, ?, ?, ?, ?)")
+        .bind(newId(), r.id, next, sc.min, flight ? JSON.stringify(flight) : null).run();
+      return json({ ok: true });
     }
 
-    // 손 경보 — 종류만 받는다. 자리는 MANUAL_SPOTS 에서 돌아가며, 시각은 지금 시연 시각
-    if (req.method === "POST" && p === "/api/alerts") {
-      if (!authorized(req, env)) return NOKEY();
+    // 사람의 결정(현장) — 승인이면 출동, 보류면 장비 대기. 경보에서 멈춘 뒤에만 받는다
+    if (p === "/api/decide") {
+      const body = await req.json<{ decision?: string }>().catch(() => ({} as { decision?: string }));
+      if (body.decision !== "approve" && body.decision !== "hold") return json({ error: "결정이 올바르지 않습니다" }, 400);
+      const r = await currentRun(env);
+      if (!r || r.phase !== "alert" || (Date.now() - r.phase_at) / 1000 < ALERT_READY_S) return json({ error: "결정할 경보가 없습니다" }, 409);
+      const sc = SCENES[r.scene - 1], sim = simClock(r, Date.now(), SC);
+      const approve = body.decision === "approve";
+      const at = await setPhase(env, r, r.scene, approve ? "dispatch" : "hold", sim);
+      if (!at) return json({ error: "이미 결정되었습니다" }, 409);
+      await env.DB.prepare("UPDATE incidents SET decision = ?, decided_sim = ?, arrive_sim = ? WHERE run_id = ? AND scene = ?")
+        .bind(body.decision, sim, approve ? sim + sc.travelMin : null, r.id, r.scene).run();
+      return json({ ok: true });
+    }
+
+    // 자유 경보(☰ 메뉴, Q&A 대응용) — 지도와 목록에만 뜬다(장면 진행과 별개). 자리는 MANUAL_SPOTS 에서 돌아가며
+    if (p === "/api/alerts") {
       const body = await req.json<{ kind?: unknown }>().catch(() => ({} as { kind?: unknown }));
       if (!isKind(body.kind)) return json({ error: "경보 종류가 올바르지 않습니다" }, 400);
-      const run = await currentRun(env);
-      if (!run) return json({ error: "먼저 「시연 시작」을 눌러 주세요" }, 409);
-      const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM alerts WHERE run_id = ? AND kind = ?")
-        .bind(run.id, body.kind).first<number>("n");
+      const run = (await currentRun(env)) ?? (await newRun(env));
+      const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM alerts WHERE run_id = ? AND kind = ?").bind(run.id, body.kind).first<number>("n");
       const spots = MANUAL_SPOTS[body.kind];
-      const s = spots[(n ?? 0) % spots.length];
-      const a = { id: "m" + newId(), kind: body.kind, ...s, sim_min: simAt(KEYFRAMES, (Date.now() - run.started_at) / 1000) };
+      const a = { id: "m" + newId(), kind: body.kind, ...spots[(n ?? 0) % spots.length], sim_min: simClock(run, Date.now(), SC) };
       await env.DB.prepare("INSERT INTO alerts (id, run_id, kind, zone, sensor, x, y, sim_min) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(a.id, run.id, a.kind, a.zone, a.sensor, a.x, a.y, a.sim_min).run();
       return json({ alert: a });
