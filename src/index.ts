@@ -1,6 +1,7 @@
 // 필드키퍼 MVP — 라우터와 API(장면 진행).
 // 회차는 장면 단계(scene · phase · phase_at · sim_base)만 저장하고 시연 시각은 그 값에서 계산한다(timeline.ts) — 폰 두 대가 같은 장면을 본다.
-// 한 장면 = 다음 장면(관제) → 경보 → 사람의 결정(현장: 승인/보류) → 출동 → 결과. 승인 없이 장비가 움직이는 경로는 없다.
+// 한 장면 = 다음 장면 → 경보 → 관리자 결정(승인/보류) → 로봇 출동 · 조치(로봇 카메라 /cam) → 관리자 종결.
+// 사람은 관제의 관리자 한 명 — 처음(승인)과 끝(종결)을 쥔다. 승인 없이 장비가 움직이는 경로는 없다.
 import { dashboardPage, ICON_SVG } from "./pages";
 import { MANUAL_SPOTS, SCENES, isKind } from "./scenario";
 import { simClock, ALERT_READY_S, moveSeconds, type RunClock } from "./timeline";
@@ -55,7 +56,8 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const p = new URL(req.url).pathname;
 
-    if (req.method === "GET" && p === "/") return html(dashboardPage());
+    if (req.method === "GET" && (p === "/" || p === "/ops")) return html(dashboardPage("ops"));
+    if (req.method === "GET" && p === "/cam") return html(dashboardPage("cam"));
     if (p === "/manifest.webmanifest") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json" } });
     if (p === "/icon.svg") return new Response(ICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
 
@@ -63,7 +65,7 @@ export default {
     if (req.method === "GET" && p === "/api/state") {
       const run = await currentRun(env);
       const incidents = run
-        ? (await env.DB.prepare("SELECT scene, alert_sim, flight_json, decision, decided_sim, arrive_sim FROM incidents WHERE run_id = ? ORDER BY scene").bind(run.id).all()).results
+        ? (await env.DB.prepare("SELECT scene, alert_sim, flight_json, decision, decided_sim, arrive_sim, closed_sim FROM incidents WHERE run_id = ? ORDER BY scene").bind(run.id).all()).results
             .map((x: any) => ({ ...x, flight: x.flight_json ? JSON.parse(x.flight_json) : null, flight_json: undefined }))
         : [];
       const manual = run
@@ -83,14 +85,12 @@ export default {
     // 처음으로 — 새 회차(04:00, 장면 전). 지난 회차와 기록은 남긴다
     if (p === "/api/demo/start") return json({ run: await newRun(env) });
 
-    // 다음 장면(관제) — 경보로 빨리 감기. 장면이 끝났거나(출동 끝 · 보류) 시작 전일 때만
+    // 다음 장면(관제) — 경보로 빨리 감기. 시작 전이거나 관리자가 앞 장면을 종결했을 때만
     if (p === "/api/scene/next") {
       let r = (await currentRun(env)) ?? (await newRun(env));
-      const now = Date.now(), e = (now - r.phase_at) / 1000;
-      const cur = r.scene > 0 ? SCENES[r.scene - 1] : null;
-      if (r.phase === "alert") return json({ error: "현장의 결정을 기다리는 중입니다" }, 409);
-      if (r.phase === "dispatch" && cur && e < moveSeconds(cur.travelMin)) return json({ error: "장비가 이동 중입니다" }, 409);
+      const now = Date.now();
       if (r.phase === "summary") return json({ error: "모든 장면이 끝났습니다 — ☰ 메뉴의 「처음으로」" }, 409);
+      if (r.phase !== "idle" && r.phase !== "closed") return json({ error: "관리자가 이 장면을 종결해야 넘어갑니다" }, 409);
       const sim = simClock(r, now, SC), next = r.scene + 1;
       if (next > SCENES.length) {
         const movements = await dayMovements(env);
@@ -108,7 +108,7 @@ export default {
       return json({ ok: true });
     }
 
-    // 사람의 결정(현장) — 승인이면 출동, 보류면 장비 대기. 경보에서 멈춘 뒤에만 받는다
+    // 관리자 결정 — 승인이면 출동, 보류면 장비 대기. 경보에서 멈춘 뒤에만 받는다
     if (p === "/api/decide") {
       const body = await req.json<{ decision?: string }>().catch(() => ({} as { decision?: string }));
       if (body.decision !== "approve" && body.decision !== "hold") return json({ error: "결정이 올바르지 않습니다" }, 400);
@@ -120,6 +120,20 @@ export default {
       if (!at) return json({ error: "이미 결정되었습니다" }, 409);
       await env.DB.prepare("UPDATE incidents SET decision = ?, decided_sim = ?, arrive_sim = ? WHERE run_id = ? AND scene = ?")
         .bind(body.decision, sim, approve ? sim + sc.travelMin : null, r.id, r.scene).run();
+      return json({ ok: true });
+    }
+
+    // 관리자 종결 — 로봇 카메라로 조치를 본 뒤(출동이 끝났거나 보류일 때) 장면을 닫는다
+    if (p === "/api/close") {
+      const r = await currentRun(env);
+      if (!r || r.scene < 1 || r.scene > SCENES.length) return json({ error: "종결할 장면이 없습니다" }, 409);
+      const sc = SCENES[r.scene - 1], e = (Date.now() - r.phase_at) / 1000;
+      const ready = r.phase === "hold" || (r.phase === "dispatch" && e >= moveSeconds(sc.travelMin));
+      if (!ready) return json({ error: r.phase === "dispatch" ? "장비가 이동 중입니다" : "아직 종결할 수 없습니다" }, 409);
+      const sim = simClock(r, Date.now(), SC);
+      const at = await setPhase(env, r, r.scene, "closed", sim);
+      if (!at) return json({ error: "이미 종결되었습니다" }, 409);
+      await env.DB.prepare("UPDATE incidents SET closed_sim = ? WHERE run_id = ? AND scene = ?").bind(sim, r.id, r.scene).run();
       return json({ ok: true });
     }
 

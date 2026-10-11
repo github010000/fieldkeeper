@@ -4,6 +4,7 @@
 //   alert    「다음 장면」을 누른 뒤 3초 동안 장면 시각까지 빨리 감고, 경보에서 멈춘 뒤로는 실제 1초 = 시연 10초로 흐른다(승인 대기)
 //   dispatch 승인 뒤 장비 이동 — 이동 시간(travelMin)을 실제 6초에 보여 주고, 도착 뒤엔 다시 1초 = 10초
 //   hold     보류 — 1초 = 10초
+//   closed   관리자가 종결 — 1초 = 10초(다음 장면을 기다린다)
 //   summary  분기 말 — 멈춤
 
 export const START_MIN = 4 * 60;
@@ -23,7 +24,7 @@ export function simClock(r: RunClock | null, now: number, sc: [number, number][]
     const tm = sc[r.scene - 1][1], move = tm > 0 ? 6 : 1;
     return e < move ? r.sim_base + (tm * e) / move : r.sim_base + tm + (e - move) * W;
   }
-  if (r.phase === "hold") return r.sim_base + e * W;
+  if (r.phase === "hold" || r.phase === "closed") return r.sim_base + e * W;
   return r.sim_base;
 }
 
