@@ -4,7 +4,7 @@
 // 사람은 관제의 관리자 한 명 — 처음(승인)과 끝(종결)을 쥔다. 승인 없이 장비가 움직이는 경로는 없다.
 import { dashboardPage, ICON_SVG } from "./pages";
 import { MANUAL_SPOTS, SCENES, isKind } from "./scenario";
-import { simClock, ALERT_READY_S, moveSeconds, type RunClock } from "./timeline";
+import { simClock, ALERT_READY_S, moveSeconds, holdSeconds, type RunClock } from "./timeline";
 import { flightInfo, dayMovements } from "./flights";
 import { WARNING_MP3 } from "./audio";
 import { judgeScene, explain } from "./judge";
@@ -43,6 +43,12 @@ const hhmm = (m: number) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + 
 
 interface RunRow extends RunClock { id: string; started_at: number; summary_json: string | null }
 
+// 지금 장면의 착륙 통과 대기(분) — 승인 순간 judge_json.holdMin 에 남긴 값(시계 · 종결 판정이 같이 쓴다)
+async function holdOf(env: Env, r: RunRow | null): Promise<number> {
+  if (!r || r.phase !== "dispatch") return 0;
+  const row = await env.DB.prepare("SELECT judge_json FROM incidents WHERE run_id = ? AND scene = ?").bind(r.id, r.scene).first<{ judge_json: string | null }>();
+  return row?.judge_json ? JSON.parse(row.judge_json).holdMin ?? 0 : 0;
+}
 async function currentRun(env: Env): Promise<RunRow | null> {
   return await env.DB.prepare("SELECT id, started_at, scene, phase, phase_at, sim_base, summary_json FROM runs ORDER BY started_at DESC LIMIT 1").first<RunRow>();
 }
@@ -84,7 +90,7 @@ export default {
       return json({
         server_now: now, locked: !!env.DEMO_KEY,
         run: run && { ...run, summary: run.summary_json ? JSON.parse(run.summary_json) : null, summary_json: undefined },
-        sim_min: simClock(run, now, SC), incidents, manual,
+        sim_min: simClock(run, now, SC, await holdOf(env, run)), incidents, manual,
       });
     }
 
@@ -132,11 +138,15 @@ export default {
       await env.DB.prepare("UPDATE incidents SET decision = ?, decided_sim = ?, arrive_sim = ? WHERE run_id = ? AND scene = ?")
         .bind(body.decision, sim, approve ? sim + sc.travelMin : null, r.id, r.scene).run();
       // 조류 — 승인이 늦어 착륙 전에 퇴치를 못 마치게 됐으면 그 사실과 마감 시각(관제탑 다시 공유)을 판단 기록에 남긴다(화면 delayLate 와 같은 셈)
+      // 착륙이 먼저면(경보 때부터 · 승인 지연) 도착 뒤 착륙 통과까지 장비를 끄고 대기한다 — 대기 분(holdMin)을 남겨 시계 · 종결 판정이 같이 쓴다
       if (approve && sc.kind === "bird") {
         const row = await env.DB.prepare("SELECT judge_json FROM incidents WHERE run_id = ? AND scene = ?").bind(r.id, r.scene).first<{ judge_json: string | null }>();
         const j = row?.judge_json ? JSON.parse(row.judge_json) : null;
         if (j?.race && !j.late && sim + sc.travelMin + j.race.need > j.race.at) {
           j.lateByDelay = true; j.shareAt = j.race.at - sc.travelMin - j.race.need;
+        }
+        if (j?.race && (j.late || j.lateByDelay)) {
+          j.holdMin = Math.max(0, j.race.at - (sim + sc.travelMin));
           await env.DB.prepare("UPDATE incidents SET judge_json = ? WHERE run_id = ? AND scene = ?").bind(JSON.stringify(j), r.id, r.scene).run();
         }
       }
@@ -148,9 +158,10 @@ export default {
       const r = await currentRun(env);
       if (!r || r.scene < 1 || r.scene > SCENES.length) return json({ error: "종결할 장면이 없습니다" }, 409);
       const sc = SCENES[r.scene - 1], e = (Date.now() - r.phase_at) / 1000;
-      const ready = r.phase === "hold" || (r.phase === "dispatch" && e >= moveSeconds(sc.travelMin) + sc.resolveS);
+      const hold = await holdOf(env, r);
+      const ready = r.phase === "hold" || (r.phase === "dispatch" && e >= moveSeconds(sc.travelMin) + holdSeconds(hold, sc.resolveS, sc.resolveMin) + sc.resolveS);
       if (!ready) return json({ error: r.phase === "dispatch" ? sc.waitText : "아직 종결할 수 없습니다" }, 409);
-      const sim = simClock(r, Date.now(), SC);
+      const sim = simClock(r, Date.now(), SC, hold);
       const at = await setPhase(env, r, r.scene, "closed", sim);
       if (!at) return json({ error: "이미 종결되었습니다" }, 409);
       await env.DB.prepare("UPDATE incidents SET closed_sim = ? WHERE run_id = ? AND scene = ?").bind(sim, r.id, r.scene).run();

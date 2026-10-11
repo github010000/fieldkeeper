@@ -22,7 +22,8 @@ function camPose(sc,frac){
   const next=i<n-1?{idx:i+1,turn:nh(H[i+1]-H[i]),name:(legs[i+1]||{}).name||"",dist:cum[i+1]-d}:null;
   return {d,h:(h+360)%360,rel,i,name:lg.name,surface:lg.surface,next,remain:tot-d};
 }
-function camSvg(st,sc,t,frac,simMin){
+// q = 착륙이 먼저인 조류 경보 {label, at} — 이동 중 장비를 끄고, 도착 뒤 착륙 통과(t<0)까지 대기한다
+function camSvg(st,sc,t,frac,simMin,q){
   const W=300,H=400, ir=sc&&sc.cam.ir;
   const ink=ir?"#9dffb0":"#e8f1f8", dim=ir?"#3f7a4c":"#7d8c99", bg=ir?"#031208":"#0d1620";
   const unit=sc?sc.cam.unit:"R1";
@@ -111,10 +112,11 @@ function camSvg(st,sc,t,frac,simMin){
       let s='<rect x="0" y="300" width="300" height="100" fill="#1d2b22"/>';
       for(let i=0;i<9;i++)s+='<circle cx="'+(30+i*30)+'" cy="306" r="2" fill="#e8c35a"/>';
       let xs=[],ys=[];
-      for(let i=0;i<30;i++){const bx=110+rnd(i,1)*90,by=130+rnd(i,2)*80,sp=track?tt:0;
+      for(let i=0;i<30;i++){const bx=110+rnd(i,1)*90,by=130+rnd(i,2)*80,sp=track?Math.max(0,tt):0;
         const x=bx+sp*sp*(2+rnd(i,3)*3),y=by-sp*(3+rnd(i,4)*4);
         if(x<310){xs.push(x);ys.push(y);s+='<path d="M'+(x-5)+','+(y-3)+' L'+x+','+y+' L'+(x+5)+','+(y-3)+'" stroke="#1a2530" stroke-width="2" fill="none"/>'}}
-      if(track&&xs.length>3){const b=tt%2.6;if(b<0.35)s+='<circle cx="60" cy="300" r="'+(18+b*120)+'" fill="none" stroke="#ffd27a" stroke-width="'+(5-b*10)+'" opacity="'+(1-b*2.6)+'"/><text x="60" y="290" fill="#ffd27a" font-size="14" text-anchor="middle" font-weight="800">폭음</text>';
+      if(track&&tt<0){s+='<rect x="50" y="244" width="200" height="40" rx="6" fill="rgba(13,22,32,.78)"/><text x="150" y="262" fill="#ffd27a" font-size="14" text-anchor="middle" font-weight="800">착륙 통과 대기 · 장비 정지</text><text x="150" y="278" fill="#c9d3dd" font-size="11" text-anchor="middle">'+(q?q.label+" "+q.at:"")+' — 관제탑 지시</text>'}
+      else if(track&&xs.length>3){const b=tt%2.6;if(b<0.35)s+='<circle cx="60" cy="300" r="'+(18+b*120)+'" fill="none" stroke="#ffd27a" stroke-width="'+(5-b*10)+'" opacity="'+(1-b*2.6)+'"/><text x="60" y="290" fill="#ffd27a" font-size="14" text-anchor="middle" font-weight="800">폭음</text>';
         s+='<text x="150" y="355" fill="#ffd27a" font-size="14" text-anchor="middle" font-weight="700">◀)) 음파퇴치기 · 폭음경보기</text>'}
       if(xs.length>3)s+=box(Math.min(...xs)-8,Math.min(...ys)-8,Math.max(...xs)-Math.min(...xs)+16,Math.max(...ys)-Math.min(...ys)+16,"새 떼 "+xs.length,"#c0392b");
       else s+='<text x="150" y="200" fill="#0f5132" font-size="17" text-anchor="middle" font-weight="800">접근로 정상</text>';
@@ -134,12 +136,12 @@ function camSvg(st,sc,t,frac,simMin){
     body=groundView(P);
     if(P)body+=tape(P.h)+navBar(P);
     // 조류 — 출발과 함께 음파퇴치기(도달 3km)를 켠다
-    if(sc.kind==="bird"&&Math.floor(Date.now()/500)%2===0)body+='<text x="150" y="350" fill="#ffd27a" font-size="15" text-anchor="middle" font-weight="700">◀)) 음파퇴치기 가동 · 이동 중</text>';
+    if(sc.kind==="bird"&&Math.floor(Date.now()/500)%2===0)body+=q?'<text x="150" y="350" fill="#ffd27a" font-size="15" text-anchor="middle" font-weight="700">퇴치 장비 정지 · 이동 중(착륙 먼저)</text>':'<text x="150" y="350" fill="#ffd27a" font-size="15" text-anchor="middle" font-weight="700">◀)) 음파퇴치기 가동 · 이동 중</text>';
     status="이동 중 · "+(P?P.name+" · ":"")+"도착까지 "+Math.max(0,Math.ceil((1-frac)*sc.travelMin))+"분";
   }else if(st==="acting"||st==="resolved"){body=bgSky+scene(t,true);
     const done=st==="resolved",k=sc.kind;
     status=done?(k==="intrusion"?"인계 완료 · 관리자 확인 대기":k==="fod"?"수거 완료 · 관리자 확인 대기":k==="bird"?"접근로 정상 · 관리자 확인 대기":"드론 이탈 · 관리자 확인 대기")
-      :(k==="intrusion"?(t>sc.resolveS*0.55?"관계기관 도착 · 인계 중":"추적 · 경고 방송 · 위치 공유"):k==="fod"?"현장 도착 · 수거 중":k==="bird"?"폭음경보기 · 음파퇴치기 가동":"탐지 카메라 추적 · 관제탑·관계기관 공유")}
+      :(k==="intrusion"?(t>sc.resolveS*0.55?"관계기관 도착 · 인계 중":"추적 · 경고 방송 · 위치 공유"):k==="fod"?"현장 도착 · 수거 중":k==="bird"?(q&&t<0?"착륙 통과 대기 · 장비 정지":q?"착륙 통과 · 다음 편 대비 퇴치":"폭음경보기 · 음파퇴치기 가동"):"탐지 카메라 추적 · 관제탑·관계기관 공유")}
   else if(st==="hold"){label="고정 센서 — "+sc.sensor;body=bgSky+scene(0,false);status="보류 · 장비 대기"}
   else if(st==="decide"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">출동 대기</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">관리자 승인을 기다린다</text>';status="대기소"}
   else if(st==="closed"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">종결</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">대기소로 복귀</text>';status="복귀 중"}
