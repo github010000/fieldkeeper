@@ -6,6 +6,9 @@ import { dashboardPage, ICON_SVG } from "./pages";
 import { MANUAL_SPOTS, SCENES, isKind } from "./scenario";
 import { simClock, ALERT_READY_S, moveSeconds, type RunClock } from "./timeline";
 import { flightInfo, dayMovements } from "./flights";
+import { WARNING_MP3 } from "./audio";
+
+const bin = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
 export interface Env {
   DB: D1Database;
@@ -30,7 +33,7 @@ const MANIFEST = JSON.stringify({
 const authorized = (req: Request, env: Env) => !env.DEMO_KEY || req.headers.get("x-demo-key") === env.DEMO_KEY;
 const NOKEY = () => json({ error: "열쇠가 맞지 않습니다" }, 403);
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-const SC: [number, number][] = SCENES.map((s) => [s.min, s.travelMin]);
+const SC: number[][] = SCENES.map((s) => [s.min, s.travelMin, s.resolveS, s.resolveMin]);
 const hhmm = (m: number) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(Math.floor(m % 60)).padStart(2, "0");
 
 interface RunRow extends RunClock { id: string; started_at: number; summary_json: string | null }
@@ -59,6 +62,7 @@ export default {
     if (req.method === "GET" && (p === "/" || p === "/ops")) return html(dashboardPage("ops"));
     if (req.method === "GET" && p === "/cam") return html(dashboardPage("cam"));
     if (p === "/manifest.webmanifest") return new Response(MANIFEST, { headers: { "content-type": "application/manifest+json" } });
+    if (p === "/audio/warning.mp3") return new Response(bin(WARNING_MP3), { headers: { "content-type": "audio/mpeg", "cache-control": "public, max-age=86400" } });
     if (p === "/icon.svg") return new Response(ICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
 
     // 지금 회차 · 사건 기록 · 자유 경보 — 화면이 1초마다 부른다. server_now 로 폰 시계 차이를 맞춘다
@@ -128,8 +132,8 @@ export default {
       const r = await currentRun(env);
       if (!r || r.scene < 1 || r.scene > SCENES.length) return json({ error: "종결할 장면이 없습니다" }, 409);
       const sc = SCENES[r.scene - 1], e = (Date.now() - r.phase_at) / 1000;
-      const ready = r.phase === "hold" || (r.phase === "dispatch" && e >= moveSeconds(sc.travelMin));
-      if (!ready) return json({ error: r.phase === "dispatch" ? "장비가 이동 중입니다" : "아직 종결할 수 없습니다" }, 409);
+      const ready = r.phase === "hold" || (r.phase === "dispatch" && e >= moveSeconds(sc.travelMin) + sc.resolveS);
+      if (!ready) return json({ error: r.phase === "dispatch" ? sc.waitText : "아직 종결할 수 없습니다" }, 409);
       const sim = simClock(r, Date.now(), SC);
       const at = await setPhase(env, r, r.scene, "closed", sim);
       if (!at) return json({ error: "이미 종결되었습니다" }, 409);

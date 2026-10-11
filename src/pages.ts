@@ -107,6 +107,8 @@ header.band.cam{border-top:4px solid #ff3b30}
 @keyframes blink{50%{opacity:.2}}
 .lab{display:inline-block;font-size:11px;font-weight:700;color:var(--accent);border:1px solid #23506f;border-radius:6px;padding:0 5px;margin-right:6px}
 .bar{position:sticky;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:4}
+/* 잠긴 단추(기다리는 중)는 붙이지 않는다 — 카드 글자를 덮지 않게 */
+.bar:has(> button:disabled){position:static}
 .bar button.wide{width:100%}
 .bar .decide{margin-top:0}
 .bar button:not(:disabled){box-shadow:0 6px 24px rgba(0,0,0,.55)}
@@ -117,6 +119,9 @@ body.cam main.camwrap{padding:0;max-width:none;display:block}
 .camview{aspect-ratio:3/4;width:100%;max-height:calc(100dvh - 150px);margin:0 auto;background:#000}
 .camline{display:flex;align-items:center;gap:8px;margin:10px 14px 0;font-weight:600}
 .center{text-align:center}
+.clock .date{display:block;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-bottom:2px}
+.unlock{position:fixed;inset:0;z-index:30;background:rgba(5,10,15,.92);color:#fff;font-size:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border-radius:0}
+.unlock small{font-size:14px;color:var(--dim);font-weight:500;max-width:80%}
 @media (min-width:860px){
   main{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;align-items:start}
   .mapbox{height:calc(100vh - 100px);position:sticky;top:76px}
@@ -145,20 +150,42 @@ const sim=()=>simClock(run,now(),SCI);
 const el=()=>run?(now()-run.phase_at)/1000:0;
 const mv=(t)=>t>0?6:1;
 const canAct=()=>ROLE==="ops"&&(!locked||!!key);
-// 단계 — idle · travel(빨리 감기) · decide(관리자 결정) · moving(출동) · arrived(조치 · 종결 대기) · hold · closed · summary
+// 단계 — idle · travel(빨리 감기) · decide(관리자 결정) · moving(출동) · acting(현장 조치 중) · resolved(해결 — 종결 가능) · hold · closed · summary
 function stage(){
   if(!run||run.phase==="idle")return "idle";
   const sc=SCN[run.scene-1];
   if(run.phase==="alert")return el()<3?"travel":"decide";
-  if(run.phase==="dispatch")return el()<mv(sc.travelMin)?"moving":"arrived";
+  if(run.phase==="dispatch"){const a=el()-mv(sc.travelMin);return a<0?"moving":a<sc.resolveS?"acting":"resolved"}
   return run.phase;
 }
 const scene=()=>run&&run.scene>=1&&run.scene<=SCN.length?SCN[run.scene-1]:null;
+// 운영 날짜 — 그날의 실제 날짜(KST). 데모데이에는 2026.10.17(토). 실제 운항편도 그날 것이라 서로 맞는다
+const DOW="일월화수목금토";
+function kstDate(){const d=new Date(now()+9*3600e3);return d.getUTCFullYear()+"."+String(d.getUTCMonth()+1).padStart(2,"0")+"."+String(d.getUTCDate()).padStart(2,"0")+"("+DOW[d.getUTCDay()]+")"}
+// ── 소리 — 폰은 사람이 한 번 누르기 전엔 소리를 못 낸다(카메라 폰은 「소리 켜기」 한 번, 관제 폰은 첫 단추) ──
+let actx=null,warnEl=null,soundOn=false;const played=new Set();
+function unlockAudio(){
+  try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume();
+    if(!warnEl){warnEl=new Audio("/audio/warning.mp3");warnEl.preload="auto"}
+    warnEl.muted=true;const p=warnEl.play();if(p)p.then(()=>{warnEl.pause();warnEl.currentTime=0;warnEl.muted=false}).catch(()=>{warnEl.muted=false});
+    soundOn=true}catch(e){}
+}
+function tone(f,d,type,at,g,f2){if(!actx)return;const o=actx.createOscillator(),v=actx.createGain(),t=actx.currentTime+(at||0);
+  o.type=type||"sine";o.frequency.setValueAtTime(f,t);if(f2)o.frequency.linearRampToValueAtTime(f2,t+d);
+  v.gain.setValueAtTime(0.0001,t);v.gain.exponentialRampToValueAtTime(g||0.25,t+0.02);v.gain.exponentialRampToValueAtTime(0.0001,t+d);
+  o.connect(v).connect(actx.destination);o.start(t);o.stop(t+d+0.05)}
+const sfx={
+  alert(){tone(880,0.18,"square",0,0.18);tone(880,0.18,"square",0.28,0.18)},         // 관제 — 새 경보
+  chime(){tone(660,0.35,"sine",0,0.3);tone(990,0.5,"sine",0.3,0.3)},                // 해결 — 확인음
+  deter(){for(let i=0;i<8;i++)tone(2200,0.22,"square",i*0.32,0.12,4200)},            // 조류 — 음향 퇴치(시뮬레이션)
+  warn(){if(warnEl){warnEl.currentTime=0;warnEl.play().catch(()=>{})}},              // 침입 — 로봇 스피커 경고 방송(한국어 · 영어)
+};
+function once(k,f){if(played.has(k))return;played.add(k);if(soundOn)f()}
 const incOf=(n)=>inc.find((x)=>x.scene===n);
 ${CAM_JS}
 function camNow(){
   const st=stage(),sc=scene();
-  const t=st==="arrived"&&sc?el()-mv(sc.travelMin):st==="hold"?el():0;
+  const t=(st==="acting"||st==="resolved")&&sc?el()-mv(sc.travelMin):st==="hold"?el():0;
   const frac=st==="moving"&&sc?el()/mv(sc.travelMin):0;
   return camSvg(st,sc,t,frac,sim());
 }
@@ -174,7 +201,7 @@ function along(path,f){
 function unitPos(){
   const st=stage(),sc=scene(),pos={};
   for(const u of UNITS)pos[u.id]=[u.x,u.y];
-  if(sc&&(st==="moving"||st==="arrived"))for(const id in sc.paths)pos[id]=along(sc.paths[id],st==="arrived"?1:el()/mv(sc.travelMin));
+  if(sc&&(st==="moving"||st==="acting"||st==="resolved"))for(const id in sc.paths)pos[id]=along(sc.paths[id],st==="moving"?el()/mv(sc.travelMin):1);
   return pos;
 }
 function drawUnits(){
@@ -189,7 +216,7 @@ function markers(){
   const out=[],st=stage();
   if(run)for(let n=1;n<=Math.min(run.scene,SCN.length);n++){
     if(n===run.scene&&st==="travel")continue;
-    const s=SCN[n-1];out.push({id:s.id,kind:s.kind,x:s.x,y:s.y,t:s.min,zone:s.zone,sensor:s.sensor,live:n===run.scene&&["decide","hold","moving","arrived"].includes(st)});
+    const s=SCN[n-1];out.push({id:s.id,kind:s.kind,x:s.x,y:s.y,t:s.min,zone:s.zone,sensor:s.sensor,live:n===run.scene&&["decide","hold","moving","acting"].includes(st)});
   }
   for(const a of manual)out.push({id:a.id,kind:a.kind,x:a.x,y:a.y,t:a.sim_min,zone:a.zone,sensor:a.sensor,live:false,free:true});
   return out;
@@ -202,7 +229,7 @@ function drawMap(){
     svgEl("text",{},t).textContent=k.mark;
   }
   const p=$("#paths");p.innerHTML="";const sc=scene(),st=stage();
-  if(sc&&(st==="moving"||st==="arrived"))for(const id in sc.paths)svgEl("polyline",{class:"route",points:sc.paths[id].map((q)=>q.join(",")).join(" ")},p);
+  if(sc&&["moving","acting","resolved"].includes(st))for(const id in sc.paths)svgEl("polyline",{class:"route",points:sc.paths[id].map((q)=>q.join(",")).join(" ")},p);
 }
 // 카메라 — 장면 중엔 경보 지점과 장비 경로가 다 보이도록 다가가고, 그 밖엔 전체
 function camTarget(box){
@@ -238,9 +265,10 @@ function sceneCard(){
   if(st==="travel")return '<div class="card" style="--c:'+k.color+'"><h3>'+hhmm(sc.min)+' 으로 이동 중…</h3></div>';
   let h='<div class="card" style="--c:'+k.color+'"><h3><span class="dot" style="background:'+k.color+'">'+k.mark+'</span>'+esc(k.ko)+'<time>'+hhmm(sc.min)+'</time></h3>'+
     '<div class="zone">'+esc(sc.zone)+'</div><div class="meta">'+esc(sc.sensor)+'</div>';
-  if(st==="decide")h+='<div class="box today"><b>오늘</b>'+esc(sc.today)+'</div>'+judge(sc,i,"필드키퍼 판단");
+  if(st==="decide")h+='<div class="box today"><b>실제 사례 — 과거에 이렇게 됐다</b>'+esc(sc.today)+'</div>'+judge(sc,i,"필드키퍼 판단");
   else if(st==="moving")h+=judge(sc,i,"승인 · 출동 중")+'<div class="camprev">'+camNow()+'</div><div class="status">도착 '+hhmm(i.arrive_sim||sim())+' 예정</div>';
-  else if(st==="arrived")h+='<div class="camprev">'+camNow()+'</div><div class="box done"><b>로봇 카메라 — 조치</b>'+esc(sc.result)+'</div><div class="status">카메라로 확인하고 종결한다</div>';
+  else if(st==="acting")h+='<div class="camprev">'+camNow()+'</div><div class="box fk"><b>현장 조치 중 — 로봇 카메라</b>'+esc(sc.action)+'</div><div class="status">'+esc(sc.waitText)+'</div>';
+  else if(st==="resolved")h+='<div class="camprev">'+camNow()+'</div><div class="box done"><b>해결 — 로봇 카메라로 확인</b>'+esc(sc.result)+'</div><div class="status ok">관리자가 확인하고 종결한다</div>';
   else if(st==="hold")h+='<div class="camprev">'+camNow()+'</div><div class="box fk"><b>관리자 보류</b>'+esc(sc.held)+'</div>';
   else if(st==="closed")h+='<div class="box done"><b>종결</b>'+esc(i.decision==="approve"?sc.result:sc.held)+'</div><div class="status ok">'+times(i,sc)+'</div>';
   return h+'</div>';
@@ -249,14 +277,14 @@ function times(i,s){
   if(i.decided_sim==null)return "";
   if(i.decision==="hold")return "경보→보류 "+dur(i.decided_sim-i.alert_sim)+(i.closed_sim!=null?" · 보류→종결 "+dur(i.closed_sim-i.decided_sim):"");
   const arr=s.travelMin>0?" · 승인→도착 "+dur(i.arrive_sim-i.decided_sim):" · 즉시 공유";
-  return "경보→승인 "+dur(i.decided_sim-i.alert_sim)+arr+(i.closed_sim!=null?" · 도착→종결 "+dur(i.closed_sim-i.arrive_sim):"");
+  return "경보→승인 "+dur(i.decided_sim-i.alert_sim)+arr+(i.closed_sim!=null?" · "+(s.travelMin>0?"도착":"공유")+"→"+s.closeShort+" "+dur(i.closed_sim-i.arrive_sim):"");
 }
 function summaryCard(){
   const sm=(run&&run.summary)||{};
   const rows=inc.map((i)=>{const s=SCN[i.scene-1],k=KIND[s.kind];
     const d=i.decision==="approve"?"승인":i.decision==="hold"?"보류":"결정 없음";
     return '<div class="rec"><div class="t"><time>'+hhmm(s.min)+'</time><span class="dot" style="background:'+k.color+';width:18px;height:18px;font-size:10px">'+k.mark+'</span>'+esc(k.ko)+'<em>'+d+(i.closed_sim!=null?" · 종결":"")+'</em></div>'+
-      '<div class="d">'+times(i,s)+'</div><div class="o">오늘: '+esc(s.todayShort)+'</div></div>'}).join("");
+      '<div class="d">'+times(i,s)+'</div><div class="o">실제 사례: '+esc(s.todayShort)+'</div></div>'}).join("");
   const birds=inc.filter((i)=>SCN[i.scene-1].kind==="bird");
   const mv=sm.movements;
   return '<div class="card" style="--c:var(--ok)"><h3>분기 말 — 기록이 남았다</h3>'+
@@ -279,7 +307,9 @@ function actions(){
   if(st==="travel")return B("x","이동 중…","primary wide",true);
   if(st==="decide")return '<div class="decide">'+B("approve",esc(sc.approveLabel),"approve")+B("hold","보류","")+'</div>';
   if(st==="moving")return B("x","로봇 이동 중 — 도착 "+hhmm(i.arrive_sim||sim()),"primary wide",true);
-  if(st==="arrived"||st==="hold")return B("close","조치 확인 — 종결","approve wide");
+  if(st==="acting")return B("x",esc(sc.waitText)+"…","primary wide",true);
+  if(st==="resolved")return B("close",esc(sc.closeLabel),"approve wide");
+  if(st==="hold")return B("close","보류 상태로 종결","approve wide");
   if(st==="closed")return n>=SCN.length?B("next","분기 말 기록 보기 ▶","primary wide"):B("next","다음 장면 ▶ "+hhmm(SCN[n].min)+" "+KIND[SCN[n].kind].ko,"primary wide");
   return "";
 }
@@ -306,8 +336,15 @@ function toast(a){
   t.classList.remove("off");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.add("off"),3500);
 }
 let lastStage="";
+function sounds(st){
+  const sc=scene();if(!run||!sc)return;const k=run.id+"|"+run.scene;
+  if(ROLE==="ops"){if(st==="decide")once(k+"|alert",sfx.alert);return}
+  const t=el()-mv(sc.travelMin);
+  if(st==="acting"&&t>0.3){if(sc.kind==="intrusion")once(k+"|warn",sfx.warn);if(sc.kind==="bird")once(k+"|deter",sfx.deter)}
+  if(st==="resolved")once(k+"|chime",sfx.chime);
+}
 function tick(){
-  $("#clock").textContent=hhmm(sim());
+  $("#clock").textContent=hhmm(sim());$("#date").textContent=kstDate();
   const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.closed_sim!=null?1:0)).join(),manual.length,run&&run.summary?1:0].join("|");
   if(key2!==shown){shown=key2;render();
     // 알림 띠는 자유 경보에만 — 장면 경보는 장면 카드가 보여 준다(띠가 아래 행동 단추를 가리지 않게)
@@ -316,6 +353,7 @@ function tick(){
       seen=ids}
     else if(st==="moving"&&lastStage!=="moving"&&lastStage&&navigator.vibrate)navigator.vibrate([200,80,200]);
     lastStage=st}
+  sounds(st);
   if(ROLE==="cam"){$("#cam").innerHTML=camNow();$("#camunit").textContent=(scene()&&stage()==="hold")?"고정 센서":scene()&&scene().cam.unit==="PTZ"?"PTZ 카메라":"로봇 카메라 "+(scene()?scene().cam.unit:"")}
   else{const pv=document.querySelector(".camprev");if(pv)pv.innerHTML=camNow();drawUnits();moveCam()}
 }
@@ -337,7 +375,7 @@ async function post(url,body){
 }
 async function wake(){try{if(navigator.wakeLock&&!wl){wl=await navigator.wakeLock.request("screen");wl.addEventListener("release",()=>wl=null)}}catch(e){}}
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")wake()});
-document.addEventListener("click",()=>wake(),{once:true});
+document.addEventListener("click",()=>{wake();if(ROLE==="ops")unlockAudio()},{once:true});
 function act(a){
   wake();if(navigator.vibrate)navigator.vibrate(30);
   if(a==="next")post("/api/scene/next");
@@ -354,13 +392,17 @@ if(ROLE==="ops"){
     openSheet(false);seen=new Set();cam=null;await post("/api/demo/start")};
   document.querySelectorAll("[data-kind]").forEach((b)=>b.onclick=async()=>{openSheet(false);await post("/api/alerts",{kind:b.dataset.kind})});
 }
-poll().then(()=>{tick();setInterval(tick,100);setInterval(poll,1000)});
+if(ROLE==="cam"){const u=$("#unlock");u.onclick=()=>{unlockAudio();wake();u.hidden=true}}
+poll().then(()=>{
+  // 처음 열 때 이미 지난 소리는 다시 내지 않는다 — 아직 소리가 꺼진 채로 한 번 돌려 「냈음」으로만 표시한다(새로고침해도 경고 방송이 반복되지 않게)
+  sounds(stage());
+  tick();setInterval(tick,100);setInterval(poll,1000)});
 `;
 
 export function dashboardPage(role: "ops" | "cam"): string {
   const kindButtons = (Object.keys(KIND) as (keyof typeof KIND)[])
     .map((k) => `<button data-kind="${k}"><span class="dot" style="background:${KIND[k].color}">${KIND[k].mark}</span>${KIND[k].ko}</button>`).join("");
-  const data = `const ROLE="${role}",SCN=${JSON.stringify(SCENES)},SCI=${JSON.stringify(SCENES.map((s) => [s.min, s.travelMin]))},` +
+  const data = `const ROLE="${role}",SCN=${JSON.stringify(SCENES)},SCI=${JSON.stringify(SCENES.map((s) => [s.min, s.travelMin, s.resolveS, s.resolveMin]))},` +
     `KIND=${JSON.stringify(KIND)},UNITS=${JSON.stringify(UNITS)},VW=${VIEW.w},VH=${VIEW.h};\n${simClock.toString()}\n`;
   const head = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -373,14 +415,15 @@ export function dashboardPage(role: "ops" | "cam"): string {
 <title>${role === "cam" ? "필드키퍼 · 로봇 카메라" : "필드키퍼 · 관제"}</title><style>${CSS}</style></head>`;
   if (role === "cam") {
     return `${head}<body class="cam">
-<header class="band cam"><div class="brand"><span class="recdot"></span><span id="camunit">로봇 카메라</span><small>필드키퍼 · 가상 지방공항</small></div><div class="clock"><b id="clock">04:00</b></div></header>
+<header class="band cam"><div class="brand"><span class="recdot"></span><span id="camunit">로봇 카메라</span><small>필드키퍼 · 가상 지방공항</small></div><div class="clock"><span id="date" class="date"></span><b id="clock">04:00</b></div></header>
+<button id="unlock" class="unlock">🔊 소리 켜기<small>로봇 스피커 경고 방송 · 퇴치음 — 시연 전에 한 번 누르세요</small></button>
 <main class="camwrap"><div id="cam" class="camview"></div><p id="camline" class="camline"></p><p class="fine center">센서·로봇·카메라 화면 = 시뮬레이션</p></main>
 <script>${data}${JS}</script></body></html>`;
   }
   return `${head}<body>
 <header class="band ops">
   <div class="brand">관제 — 관리자<small>필드키퍼 · 가상 지방공항</small></div>
-  <div class="clock"><b id="clock">04:00</b></div>
+  <div class="clock"><span id="date" class="date"></span><b id="clock">04:00</b></div>
   <button id="menu" class="menu-btn" aria-label="메뉴">☰</button>
 </header>
 <main>

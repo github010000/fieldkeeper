@@ -32,15 +32,18 @@ export type FlightQuery =
 
 export interface Scene extends Spot {
   id: string; min: number; kind: Kind; note: string;
-  today: string;                 // 오늘 — 시나리오 문서의 사실만(출처는 그 문서)
-  todayShort: string;            // 분기 말 기록표의 「오늘」 칸
+  today: string;                 // 실제 사례 — 시나리오 문서의 사실만(출처는 그 문서). 해를 바꾸지 않는다(지어낸 사건이 된다)
+  todayShort: string;            // 분기 말 기록표의 「실제 사례」 칸
   situation: string;             // 필드키퍼 판단 · 상황 — 센서·레이더가 본 것(운항편 겹침은 서버가 붙인다)
   action: string;                // 필드키퍼 판단 · 조치 — 관리자가 승인하면 할 일(장면마다 하나)
   approveLabel: string;
   cam: { unit: string; ir: boolean };  // 로봇 카메라 화면(/cam) — 어느 장비의 눈인가 · 야간 적외선 톤인가
   paths: Record<string, Pt[]>;   // 승인 뒤 움직이는 장비와 경로(대기소 → 현장)
   travelMin: number;             // 가장 늦게 도착하는 장비 기준(시연 분)
-  result: string;                // 도착 뒤 — 카메라로 보이는 조치
+  result: string;                // 도착 뒤 — 카메라로 보이는 조치(해결된 모습)
+  // 종결 조건 — 로봇이 도착해도 바로 끝나지 않는다(침입자는 관계기관이 넘겨받아야 끝난다).
+  // 도착 뒤 resolveS 초(실제) = resolveMin 분(시연)이 지나 해결 장면이 카메라에 보여야 관리자 종결 단추가 열린다(시뮬레이션 가정)
+  waitText: string; closeLabel: string; closeShort: string; resolveS: number; resolveMin: number;
   held: string;                  // 보류했을 때 — 장비는 대기, 고정 센서로 본다
   flight?: FlightQuery;          // 없으면 운항편을 붙이지 않는다
 }
@@ -61,7 +64,8 @@ export const SCENES: Scene[] = [
     approveLabel: "로봇 1 출동 승인",
     cam: { unit: "R1", ir: true },
     paths: { R1: [[62, 330], [102, 330], [102, 304], [120, 304], [192, 334]] },
-    result: "로봇 1 현장 도착 — 침입자 2명 추적 · 경고 방송 · 위치를 관제와 관계기관에 실시간 공유.",
+    result: "로봇 1이 침입자 2명을 추적 · 경고 방송으로 멈춰 세움 → 관계기관 도착 · 인계 완료.",
+    waitText: "추적 · 경고 방송 중 — 관계기관 도착 대기", closeLabel: "인계 확인 — 종결", closeShort: "인계", resolveS: 16, resolveMin: 8,
     held: "보류 — 로봇 1 대기. 울타리 고정 카메라로 계속 지켜본다.",
   }),
   scene({
@@ -75,6 +79,7 @@ export const SCENES: Scene[] = [
     cam: { unit: "R2", ir: true },
     paths: { R2: [[76, 330], [102, 330], [102, 240], [117, 240]] },
     result: "이물질 1건 수거 · 전후 사진 기록. 관리자가 카메라로 확인하면 「활주로 이상 없음」.",
+    waitText: "수거 중", closeLabel: "수거 확인 — 활주로 사용 가능", closeShort: "수거 확인", resolveS: 6, resolveMin: 2,
     held: "보류 — 로봇 2 대기. 첫 편 전에 다시 판단한다.",
     flight: { use: "firstDepart", from: "0500", to: "1000" },
   }),
@@ -89,6 +94,7 @@ export const SCENES: Scene[] = [
     cam: { unit: "D1", ir: false },
     paths: { D1: [[166, 128], [126, 24]] },
     result: "새 떼 접근로 밖으로 이동 · 퇴치 기록. 같은 무리가 돌아오면 다시 간다.",
+    waitText: "음향·조명 퇴치 중", closeLabel: "접근로 정상 확인 — 종결", closeShort: "접근로 정상", resolveS: 8, resolveMin: 2,
     held: "보류 — 드론 1 대기. 관제탑에 조류 정보를 전한다.",
     flight: { use: "nextArrival", from: "0857", to: "0957" },
   }),
@@ -102,7 +108,8 @@ export const SCENES: Scene[] = [
     approveLabel: "공유·통보 승인",
     cam: { unit: "PTZ", ir: false },
     paths: {},
-    result: "드론 추적 중 · 관제탑·관계기관에 경로 공유 · 통보 · 기록. 필드키퍼의 범위는 찾고 · 알리고 · 기록까지.",
+    result: "드론 추적 · 관제탑·관계기관에 경로 공유 · 통보 → 드론 이탈 · 기록. 필드키퍼의 범위는 찾고 · 알리고 · 기록까지.",
+    waitText: "PTZ 추적 중 — 관계기관 통보 · 이탈 대기", closeLabel: "상황 해제 확인 — 종결", closeShort: "상황 해제", resolveS: 8, resolveMin: 5,
     held: "보류 — 관제탑에만 알린다.",
     flight: { use: "window", from: "1253", to: "1353" },
   }),

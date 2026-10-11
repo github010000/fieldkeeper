@@ -1,4 +1,4 @@
-// 사용: node scripts/shot.mjs <주소> <폭> <높이> <출력접두> <찍을 시점 ms,...> [모바일 0/1]
+// 사용: [CLICK=선택자] node scripts/shot.mjs <주소> <폭> <높이> <출력접두> <찍을 시점 ms,...> [모바일 0/1]
 // 헤드리스 크롬을 원격 디버깅으로 띄워 폰 화면을 흉내 내고, 지정한 시점마다 캡처한다(Node 내장 WebSocket)
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -26,6 +26,8 @@ await send("Emulation.setDeviceMetricsOverride", { width: +w, height: +h, device
 if (mobile === "1") await send("Emulation.setTouchEmulationEnabled", { enabled: true });
 const t0 = Date.now();
 await send("Page.navigate", { url });
+// CLICK=선택자 — 페이지가 뜬 뒤 그 요소를 한 번 누른다(예: 카메라 화면의 「소리 켜기」 덮개)
+if (process.env.CLICK) { await sleep(1200); await send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(process.env.CLICK)})?.click()` }); }
 for (const t of times.split(",").map(Number)) {
   await sleep(Math.max(0, t - (Date.now() - t0)));
   const r = await send("Page.captureScreenshot", { format: "png" });
