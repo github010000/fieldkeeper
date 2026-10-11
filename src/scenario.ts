@@ -39,6 +39,8 @@ export interface Scene extends Spot {
   todayShort: string;            // 분기 말 기록표의 「실제 사례」 칸
   situation: string;             // 필드키퍼 판단 · 상황 — 센서·레이더가 본 것(운항편 겹침은 서버가 붙인다)
   action: string;                // 필드키퍼 판단 · 조치 — 관리자가 승인하면 할 일(장면마다 하나)
+  actionLate?: string;           // 착륙 · 출발이 로봇 조치보다 먼저 올 때의 조치(judge.ts 가 고른다)
+  autoShare?: string;            // 그때 경보와 함께 자동으로 나가는 정보 공유(장비 이동 아님)
   approveLabel: string;
   cam: { unit: string; ir: boolean };  // 로봇 카메라 화면(/cam) — 어느 장비의 눈인가 · 야간 적외선 톤인가
   paths: Record<string, Pt[]>;   // 승인 뒤 움직이는 장비와 경로(대기소 → 현장)
@@ -98,7 +100,10 @@ export const SCENES: Scene[] = [
     today: "2024년 12월 국내 한 공항 — 조류 경보 08:57, 사고 09:03. 경보에서 사고까지 6분.",
     todayShort: "경보 → 사고 6분",
     situation: "조류 레이더 — 새 떼 약 30마리 · 북쪽 접근로(활주로 18 접근 경로)로 이동",
-    action: "북쪽 거점 로봇 2 출동 — 출발과 함께 음파퇴치기(도달 3km) 가동, 접근로 앞 울타리에서 폭음경보기로 새 떼를 몰아낸다",
+    action: "북쪽 거점 로봇 2 출동(이동 약 460m) — 음파퇴치기(소리 도달 3km)를 켜고 접근로 앞 울타리에서 폭음경보기로 새 떼를 몰아낸다",
+    // 착륙이 로봇 퇴치보다 먼저 오면(judge.ts race) — 착륙 편은 관제탑이 판단하고(경보와 함께 자동 공유), 로봇은 다음 편 전에 접근로를 정리한다(대장 10-11)
+    actionLate: "관제탑에 조류 정보 즉시 공유(착륙 편 복행 · 지연은 관제탑 판단) · 로봇 2 출동(이동 약 460m)은 다음 편 전 접근로 정리 — 퇴치 시작은 관제탑과 맞춘다",
+    autoShare: "관제탑에 조류 정보 공유 — 경보와 함께 자동(정보 전달 · 장비는 승인 뒤에만 움직인다)",
     approveLabel: "로봇 2 퇴치 출동 승인",
     cam: { unit: "R2", ir: false },
     homes: { R2: [156, 66] },

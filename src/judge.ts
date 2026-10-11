@@ -11,7 +11,10 @@ export interface Part { k: string; v: string; p: number }
 export interface Judgement {
   score: number; grade: "긴급" | "높음" | "보통"; parts: Part[];
   unit: string; unitLabel: string; pick: string;   // 고른 장비와 고른 이유(탑재 장비 · 출발 자리 · 도착 시간)
-  check: string | null;                            // 운항편과 맞춰 본 한 줄(이물질 = 첫 출발 전 여유, 조류 = 착륙 전 도착)
+  check: string | null;                            // (10-11 옛 기록용) 운항편과 맞춰 본 고정 문장 — 이제는 race 로 화면이 매초 계산한다
+  // 운항 경주 — 로봇 조치가 이 편보다 먼저 끝나야 한다(이물질 = 첫 출발, 조류 = 다음 착륙). 화면이 승인 전엔 「지금 승인하면」, 뒤엔 실제 도착 시각으로 견준다
+  race?: { at: number; label: string; need: number } | null;
+  late?: boolean;                                  // 경보 즉시 출발해도 그 편이 먼저 온다 → 조치 = actionLate, 관제탑 자동 공유(autoShare)
   why: string; whySrc: "ai" | "rule";
 }
 
@@ -38,9 +41,10 @@ function place(x: number, y: number, distM?: number): Part {
 const toMin = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
 const dur = (min: number) => { const s = Math.round(min * 60); return s >= 60 ? `${Math.floor(s / 60)}분 ${s % 60}초` : `${s}초`; };
 
-function margin(sc: Scene, f: FlightInfo | null): { part: Part; next: { time: string; io: "I" | "O"; gap: number } | null } {
+function margin(sc: Scene, f: FlightInfo | null): { part: Part; next: { time: string; id: string; io: "I" | "O"; gap: number } | null } {
   if (!f || !f.ok) return { part: { k: "운항", v: "조회 실패", p: 15 }, next: null };
-  const n = f.flights.map((x) => ({ time: x.time, io: x.io, gap: toMin(x.time) - sc.min })).filter((x) => x.gap >= 0).sort((a, b) => a.gap - b.gap)[0];
+  // 변경(예상) 시각이 있으면 그것으로 — flights.ts eff(10-11 이전 기록은 eff 가 없어 예정 시각)
+  const n = f.flights.map((x) => { const t = x.eff || x.time; return { time: t, id: x.id, io: x.io, gap: toMin(t) - sc.min }; }).filter((x) => x.gap >= 0).sort((a, b) => a.gap - b.gap)[0];
   if (!n) return { part: { k: "운항", v: "가까운 운항 없음", p: 5 }, next: null };
   const what = `${n.io === "I" ? "착륙" : "출발"} ${n.gap}분 뒤`;
   const p = n.gap <= 10 ? 35 : n.gap <= 30 ? 25 : n.gap <= 60 ? 15 : 5;
@@ -83,20 +87,19 @@ export function judgeScene(idx: number, f: FlightInfo | null): Judgement {
   const score = Math.min(100, kind.p + loc.p + fl.p);
   const grade = score >= 80 ? "긴급" : score >= 60 ? "높음" : "보통";
   const p = pickUnit(idx);
-  let unit = "탐지 카메라", unitLabel = "공항 드론 탐지 카메라", pick = "로봇이 할 일 없음 — 퇴치 결정 · 실행은 공항운영자 · 관계기관(공항시설법 제56조③)", check: string | null = null;
+  let unit = "탐지 카메라", unitLabel = "공항 드론 탐지 카메라", pick = "로봇이 할 일 없음 — 퇴치 결정 · 실행은 공항운영자 · 관계기관(공항시설법 제56조③)";
+  let race: Judgement["race"] = null, late = false;
   if (p) {
     unit = p.unit; unitLabel = UNITS.find((u) => u.id === p.unit)!.label;
     pick = `${p.need} 탑재 · ${p.from}에서 ${dur(p.min)}`;
-    if (sc.kind === "fod" && next && next.io === "O") {
-      const done = sc.min + p.min + sc.resolveMin, left = Math.round(toMin(next.time) - done);
-      check = left >= 0 ? `수거를 마쳐도 첫 출발 ${next.time}까지 ${left}분 남는다` : `첫 출발 ${next.time} 전에 수거를 못 마친다 — 관제탑에 알린다`;
-    }
+    if (sc.kind === "fod" && next && next.io === "O") race = { at: toMin(next.time), label: `첫 출발 ${next.id}`, need: sc.resolveMin };
     if (sc.kind === "bird" && next && next.io === "I") {
-      const left = Math.round(next.gap - p.min);
-      check = left >= 0 ? `착륙 ${left}분 전에 현장에 닿는다` : `착륙 뒤에 닿는다 — 관제탑에 조류 정보를 바로 전한다`;
+      race = { at: toMin(next.time), label: `${next.id} 착륙`, need: sc.resolveMin };
+      // 승인에 1분은 걸린다고 보고, 그래도 착륙이 먼저면 — 로봇은 이 착륙을 지킬 수 없다(관제탑이 판단, 대장 10-11)
+      late = next.gap < 1 + p.min + sc.resolveMin && !!sc.actionLate;
     }
   }
-  const j: Judgement = { score, grade, parts: [kind, loc, fl], unit, unitLabel, pick, check, why: "", whySrc: "rule" };
+  const j: Judgement = { score, grade, parts: [kind, loc, fl], unit, unitLabel, pick, check: null, race, late, why: "", whySrc: "rule" };
   j.why = ruleWhy(sc, j, p?.min ?? 0);
   return j;
 }
@@ -104,12 +107,16 @@ export function judgeScene(idx: number, f: FlightInfo | null): Judgement {
 function ruleWhy(sc: Scene, j: Judgement, min: number): string {
   const head = `위험도 ${j.score}(${j.grade}) — ${j.parts[1].v} · ${j.parts[2].v}.`;
   const need = NEED[sc.kind];
+  if (j.late) return `${head} 착륙이 로봇 퇴치보다 먼저라 관제탑에 바로 알렸고, ${OBJ[need!]} 실은 ${SUBJ[j.unit]} 다음 편 전에 접근로를 정리한다.`;
   if (!need) return `${head} 퇴치 권한은 공항운영자 · 관계기관에 있어 탐지 카메라로 추적하며 경로를 바로 알린다.`;
   return `${head} ${OBJ[need]} 실은 ${SUBJ[j.unit]} ${dur(min)} 만에 닿는다.`;
 }
 
 // AI 한 줄 — 계산값만 보낸다(원문 없음). msu LiteLLM(fieldkeeper-explain = gemma4, llm-serve 10-11) · 게이트웨이 시간 제한 4초(본문 timeout — 클라이언트만 끊으면 생성이 멈추지 않는다, llm-serve 10-11)
 // 답에 입력에 없던 숫자가 있거나 80자를 넘거나 실패하면 규칙 문장을 쓴다
+// 지시문 — 착륙이 먼저인 경보(late)에만 그 형식을 붙인다(늘 붙이면 다른 장면에도 「관제탑에 바로 알렸고」가 새어 나온다, 10-11 실측)
+const SYS = "너는 비행장 관제 보조다. 관리자가 승인 단추를 누르기 전에 읽을 「왜 이 조치인가」 한 문장을 쓴다. 앞부분 = 왜 급한가(위험도 항목 가운데 점수가 큰 것과 운항 대조), 뒷부분 = 왜 이 장비인가(탑재 장비와 도착 시간). 문장 끝은 장비에 따라 정해져 있다: 장비가 로봇이면 '<탑재 장비>를 실은 로봇 N을 보낸다'로, 장비가 '공항 드론 탐지 카메라'일 때만 '탐지 카메라로 추적하며 알린다'로 끝낸다. 입력의 표현과 숫자만 쓰고, 입력에 없는 위치 · 상태 · 숫자 · 효과를 덧붙이지 않는다. 한국어 80자 이내, '-다'로 끝낸다. 문장만 출력한다.";
+const LATE = " 이번 경보는 착륙이 로봇보다 먼저다. 이 형식만 쓴다: '<운항 항목>이라 로봇보다 착륙이 먼저여서 관제탑에 바로 알렸고, <탑재 장비>를 실은 로봇 N은 다음 편 전에 접근로를 정리한다.' 로봇을 '보낸다'고 쓰지 않는다.";
 export async function explain(env: { LLM_BASE_URL?: string; LLM_API_KEY?: string; LLM_MODEL?: string }, idx: number, j: Judgement): Promise<Judgement> {
   if (!env.LLM_BASE_URL) return j;
   const sc = SCENES[idx];
@@ -117,8 +124,8 @@ export async function explain(env: { LLM_BASE_URL?: string; LLM_API_KEY?: string
     `경보: ${KIND[sc.kind].ko} · ${sc.zone} · ${sc.note}`,
     `위험도: ${j.score}/100(${j.grade}) = ${j.parts.map((p) => `${p.k} ${p.v} ${p.p}점`).join(" + ")}`,
     `조치 장비: ${j.unitLabel} (${j.pick})`,
-    ...(j.check ? [`운항 대조: ${j.check}`] : []),
-    `조치: ${sc.action}`,
+    ...(j.late ? [`운항 대조: ${j.parts[2].v} — 로봇 도착 · 퇴치보다 먼저 온다`, `자동 공유: 관제탑에 조류 정보를 경보와 함께 공유했다(착륙 편 판단은 관제탑)`] : []),
+    `조치: ${j.late ? sc.actionLate : sc.action}`,
   ].join("\n");
   try {
     const r = await fetch(`${env.LLM_BASE_URL}/v1/chat/completions`, {
@@ -128,7 +135,7 @@ export async function explain(env: { LLM_BASE_URL?: string; LLM_API_KEY?: string
         model: env.LLM_MODEL || "fieldkeeper-explain", user: "fieldkeeper", timeout: 4, max_tokens: 120, temperature: 0,
         chat_template_kwargs: { enable_thinking: false },
         messages: [
-          { role: "system", content: "너는 비행장 관제 보조다. 관리자가 승인 단추를 누르기 전에 읽을 「왜 이 조치인가」 한 문장을 쓴다. 앞부분 = 왜 급한가(위험도 항목 가운데 점수가 큰 것과 운항 대조), 뒷부분 = 왜 이 장비인가(탑재 장비와 도착 시간). 문장 끝은 장비에 따라 정해져 있다: 장비가 로봇이면 '<탑재 장비>를 실은 로봇 N을 보낸다'로, 장비가 '공항 드론 탐지 카메라'일 때만 '탐지 카메라로 추적하며 알린다'로 끝낸다. 입력의 표현과 숫자만 쓰고, 입력에 없는 위치 · 상태 · 숫자 · 효과를 덧붙이지 않는다. 한국어 80자 이내, '-다'로 끝낸다. 문장만 출력한다." },
+          { role: "system", content: SYS + (j.late ? LATE : "") },
           { role: "user", content: "경보: 조류(새 떼) · 남쪽 접근로 · 새 떼 약 12마리\n위험도: 85/100(긴급) = 종류 조류 35점 + 위치 접근로 축 30점 + 운항 착륙 25분 뒤 25점\n조치 장비: 로봇 2 (음파퇴치기 탑재 · 조류 퇴치 거점에서 4분 10초)\n운항 대조: 착륙 21분 전에 현장에 닿는다" },
           { role: "assistant", content: "접근로 축에 새 떼가 있고 착륙이 25분 뒤라, 음파퇴치기를 실은 로봇 2를 보내 착륙 21분 전에 닿게 한다." },
           { role: "user", content: facts },
@@ -141,6 +148,8 @@ export async function explain(env: { LLM_BASE_URL?: string; LLM_API_KEY?: string
     const nums = (t: string) => t.match(/\d+/g) ?? [];
     const known = new Set(nums(facts));
     if (!s || s.length > 80 || nums(s).some((n) => !known.has(n))) return j;
+    // 착륙이 먼저인 경보는 「관제탑」이 빠지면 버린다 — 로봇이 착륙을 지키는 것처럼 읽히면 안 된다(대장 10-11)
+    if (j.late && (!s.includes("관제탑") || s.includes("보낸다"))) return j;
     return { ...j, why: s, whySrc: "ai" };
   } catch { return j; }
 }
