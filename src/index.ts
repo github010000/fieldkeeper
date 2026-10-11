@@ -6,6 +6,8 @@ import { KEYFRAMES, simAt } from "./timeline";
 
 export interface Env {
   DB: D1Database;
+  // 단추 잠금 — 시연 시작·경보 발생은 이 열쇠(헤더 x-demo-key)가 맞을 때만. 비우면 잠그지 않는다(로컬). 값은 .dev.vars 에만 둔다
+  DEMO_KEY?: string;
 }
 
 const json = (o: unknown, status = 200) =>
@@ -18,6 +20,9 @@ const MANIFEST = JSON.stringify({
   start_url: "/", display: "standalone", lang: "ko", theme_color: "#0b1219", background_color: "#0b1219",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml" }],
 });
+
+const authorized = (req: Request, env: Env) => !env.DEMO_KEY || req.headers.get("x-demo-key") === env.DEMO_KEY;
+const NOKEY = () => json({ error: "열쇠가 맞지 않습니다" }, 403);
 
 const newId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
@@ -44,11 +49,12 @@ export default {
             .bind(run.id).all()).results
         : [];
       const now = Date.now();
-      return json({ server_now: now, run, sim_min: run ? simAt(KEYFRAMES, (now - run.started_at) / 1000) : null, manual });
+      return json({ server_now: now, locked: !!env.DEMO_KEY, run, sim_min: run ? simAt(KEYFRAMES, (now - run.started_at) / 1000) : null, manual });
     }
 
     // 시연 시작(= 처음부터 다시) — 새 회차 한 줄. 지난 회차와 그 손 경보는 지우지 않는다
     if (req.method === "POST" && p === "/api/demo/start") {
+      if (!authorized(req, env)) return NOKEY();
       const run = { id: newId(), started_at: Date.now() };
       await env.DB.prepare("INSERT INTO runs (id, started_at) VALUES (?, ?)").bind(run.id, run.started_at).run();
       return json({ run });
@@ -56,6 +62,7 @@ export default {
 
     // 손 경보 — 종류만 받는다. 자리는 MANUAL_SPOTS 에서 돌아가며, 시각은 지금 시연 시각
     if (req.method === "POST" && p === "/api/alerts") {
+      if (!authorized(req, env)) return NOKEY();
       const body = await req.json<{ kind?: unknown }>().catch(() => ({} as { kind?: unknown }));
       if (!isKind(body.kind)) return json({ error: "경보 종류가 올바르지 않습니다" }, 400);
       const run = await currentRun(env);

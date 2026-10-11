@@ -65,6 +65,7 @@ h2{font-size:14px;margin:6px 2px 8px;color:var(--dim);font-weight:600}
 .toast b{display:block}
 .toast .sub{font-size:13px;color:#e8c9c9}
 .msg{font-size:13px;color:#ffb4b4;min-height:0;margin:0 2px 8px}
+.msg.ro{color:var(--dim);margin:10px 2px}
 @media (min-width:860px){
   main{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px;align-items:start}
   .side{position:sticky;top:70px}
@@ -78,7 +79,13 @@ h2{font-size:14px;margin:6px 2px 8px;color:var(--dim);font-weight:600}
 const JS = `
 const $=(s)=>document.querySelector(s);
 const NS="http://www.w3.org/2000/svg";
-let run=null, offset=0, manual=[], seen=null, shownKey="", busy=false, lock=null;
+let run=null, offset=0, manual=[], seen=null, shownKey="", busy=false, lock=null, locked=false;
+// 단추 잠금 — 열쇠 링크(?k=…)로 한 번 열면 이 폰에 기억하고 주소창에서는 지운다. 열쇠 없는 폰은 보기만 한다(진짜 문지기는 서버)
+let key="";
+try{const q=new URLSearchParams(location.search).get("k");if(q){key=q;history.replaceState(null,"",location.pathname)}}catch(e){}
+try{if(key)localStorage.setItem("fk_key",key);else key=localStorage.getItem("fk_key")||""}catch(e){}
+const H=(extra)=>Object.assign({"x-demo-key":key},extra||{});
+const NOKEY="열쇠가 맞지 않습니다 — 열쇠 링크로 다시 열어 주세요";
 const hhmm=(m)=>{m=Math.floor(m);return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0")};
 function now(){return Date.now()+offset}
 function simNow(){return run?simAt(KF,(now()-run.started_at)/1000):START}
@@ -149,7 +156,8 @@ async function poll(){
     offset=d.server_now-(t0+t1)/2;
     // 다른 폰이 회차를 새로 시작했으면 그 뒤 경보는 모두 「새 경보」로 알린다(처음 열 때는 seen=null 이라 알리지 않는다)
     if(seen&&(run&&run.id)!==(d.run&&d.run.id)){seen=new Set();shownKey=""}
-    run=d.run;manual=d.manual;
+    run=d.run;manual=d.manual;locked=d.locked;
+    const ro=locked&&!key;$("#bar").hidden=ro;$("#viewonly").hidden=!ro;if(ro)$("#kinds").hidden=true;
   }catch(e){}
 }
 async function wake(){try{if(navigator.wakeLock&&!lock){lock=await navigator.wakeLock.request("screen");lock.addEventListener("release",()=>lock=null)}}catch(e){}}
@@ -159,7 +167,7 @@ $("#start").onclick=async()=>{
   if(busy) return;
   if(run&&simNow()<END&&!confirm("시연을 처음(04:00)부터 다시 시작할까요?")) return;
   busy=true;say("");wake();
-  try{const r=await fetch("/api/demo/start",{method:"POST"});if(!r.ok)throw 0;seen=new Set();shownKey="";await poll();tick()}
+  try{const r=await fetch("/api/demo/start",{method:"POST",headers:H()});if(r.status===403){say(NOKEY);busy=false;return}if(!r.ok)throw 0;seen=new Set();shownKey="";await poll();tick()}
   catch(e){say("시작하지 못했습니다 — 연결을 확인해 주세요")}
   busy=false;
 };
@@ -167,9 +175,9 @@ $("#manual").onclick=()=>{$("#kinds").hidden=!$("#kinds").hidden};
 document.querySelectorAll("#kinds button").forEach(b=>b.onclick=async()=>{
   say("");
   try{
-    const r=await fetch("/api/alerts",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:b.dataset.kind})});
+    const r=await fetch("/api/alerts",{method:"POST",headers:H({"content-type":"application/json"}),body:JSON.stringify({kind:b.dataset.kind})});
     const d=await r.json();
-    if(!r.ok){say(d.error||"경보를 띄우지 못했습니다");return}
+    if(!r.ok){say(r.status===403?NOKEY:(d.error||"경보를 띄우지 못했습니다"));return}
     $("#kinds").hidden=true;await poll();tick();
   }catch(e){say("경보를 띄우지 못했습니다 — 연결을 확인해 주세요")}
 });
@@ -199,7 +207,8 @@ export function dashboardPage(): string {
 <main>
   <section class="mapbox">${mapSvg()}<span class="sim">센서·로봇 = 시뮬레이션</span></section>
   <section class="side">
-    <div class="bar"><button id="start" class="primary">▶ 시연 시작</button><button id="manual">+ 경보 발생</button></div>
+    <p id="viewonly" class="msg ro" hidden>보기 전용 — 단추는 열쇠 링크로 연 폰에서만 눌립니다</p>
+    <div id="bar" class="bar"><button id="start" class="primary">▶ 시연 시작</button><button id="manual">+ 경보 발생</button></div>
     <div id="kinds" class="kinds" hidden>${kindButtons}</div>
     <p id="msg" class="msg"></p>
     <h2>경보 — 최근 것이 위</h2>
