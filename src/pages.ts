@@ -314,11 +314,13 @@ function summaryCard(){
       '<div class="d">'+times(i,s)+'</div><div class="o">실제 사례: '+esc(s.todayShort)+'</div></div>'}).join("");
   const birds=inc.filter((i)=>SCN[i.scene-1].kind==="bird");
   const mv=sm.movements;
+  const sent=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1].travelMin>0).length,shared=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1].travelMin===0).length;
   return '<div class="card" style="--c:var(--ok)"><h3>분기 말 — 기록이 남았다</h3>'+
     '<div class="meta">경보 · 관리자의 승인 · 로봇 도착 · 종결이 자동으로 쌓였다. 고시가 쓰는 지표로 바로 답한다.</div>'+rows+
     '<div class="box done"><b>조류충돌발생률 (운항 1만 회당 충돌 · 고시 정의)</b>'+
-    (mv!=null?'오늘 실제 운항 '+mv+'회 · 조류 경보 '+birds.length+'건 · 충돌 0건 → <b style="display:inline;font-size:15px;color:var(--ok)">0.0</b>':'오늘 운항 횟수 조회 실패 — 발생률은 계산하지 않는다')+
-    '<span class="flight fail">충돌 0건은 이 시연(시뮬레이션)의 결과다</span></div>'+
+    (mv!=null?'오늘 하루 항공기 이착륙 '+mv+'편(실제 운항 정보) · 조류 경보 '+birds.length+'건 · 충돌 0건 → <b style="display:inline;font-size:15px;color:var(--ok)">0.0</b>':'오늘 운항 횟수 조회 실패 — 발생률은 계산하지 않는다')+
+    '<span class="flight fail">분기 말에는 석 달 치 이착륙이 분모가 된다 — 시연은 하루 치로 보인다. 충돌 0건은 이 시연(시뮬레이션)의 결과다</span></div>'+
+    '<div class="box today"><b>로봇 출동 '+sent+'회'+(shared?' · 경보 공유 '+shared+'회':'')+'</b>출동은 모두 관리자 승인 뒤 · 종결도 관리자가 했다</div>'+
     '<div class="status ok">관리자 한 명이 처음과 끝을 쥐고, 현장은 로봇이 지킨다</div></div>';
 }
 function stepBar(){
