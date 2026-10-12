@@ -89,6 +89,7 @@ button:active:not(:disabled){transform:translateY(1px)}
 .ask{border-left-width:6px} .ask h3{font-size:19px}
 .msg{font-size:13px;color:#ffb4b4;margin:6px 2px}
 .ro{color:var(--dim);font-size:13px;margin:8px 2px}
+.ro.nokey{color:#ffd27a;background:#3a2a10;border:1px solid #ffd27a;border-radius:10px;padding:10px 12px;font-size:15px;font-weight:700;margin:0 0 10px}
 .rec{border-top:1px solid var(--line);padding:9px 0;font-size:14px}
 .rec .t{display:flex;align-items:center;gap:7px;font-weight:600}
 .rec .t time{font:600 14px ui-monospace,Menlo,monospace;color:var(--dim)}
@@ -158,7 +159,13 @@ let run=null, offset=0, inc=[], manual=[], locked=false, busy=false, wl=null, se
 // 열쇠 링크(?k=…)는 한 번 열면 이 폰에 기억하고 주소창에서는 지운다. 역할은 주소(/ops · /cam)가 정한다
 let key="";
 try{const q=new URLSearchParams(location.search);if(q.get("k"))key=q.get("k");if(q.toString())history.replaceState(null,"",location.pathname)}catch(e){}
-try{if(key)localStorage.setItem("fk_key",key);else key=localStorage.getItem("fk_key")||""}catch(e){}
+// 열쇠는 저장 공간과 쿠키 두 곳에 둔다 — 10-12 배포 뒤 자동 새로고침에서 아이패드가 열쇠를 잃었다
+// (저장 공간에 fk_key 가 없었다. 쓰기는 되는데 왜 비었는지는 못 밝혔다 — 한쪽이 비어도 다른 쪽으로 버틴다)
+function keyGet(){let v="";try{v=localStorage.getItem("fk_key")||""}catch(e){}
+  if(!v){const m=document.cookie.match(/(?:^|; )fk_key=([^;]*)/);if(m)try{v=decodeURIComponent(m[1])}catch(e){}}return v}
+function keyPut(v){try{localStorage.setItem("fk_key",v)}catch(e){}
+  try{document.cookie="fk_key="+encodeURIComponent(v)+"; Max-Age=31536000; Path=/; Secure; SameSite=Strict"}catch(e){}}
+if(key)keyPut(key);else{key=keyGet();if(key)keyPut(key)}
 const H=(x)=>Object.assign({"x-demo-key":key},x||{});
 const NOKEY="열쇠가 맞지 않습니다 — 열쇠 링크로 다시 열어 주세요";
 const hhmm=(m)=>{m=Math.floor(m);return String(Math.floor(m/60)%24).padStart(2,"0")+":"+String(m%60).padStart(2,"0")};
@@ -624,10 +631,10 @@ export function dashboardPage(role: "ops" | "cam", build = pageBuild()): string 
 <main>
   <section class="mapbox">${mapSvg()}<span class="sim">센서·로봇 = 시뮬레이션</span><svg class="compass" viewBox="0 0 56 56" aria-label="방위 — 위가 북"><circle cx="28" cy="28" r="27"/><path class="n" d="M28,9 L32,28 L24,28 Z"/><path class="s" d="M28,47 L32,28 L24,28 Z"/><text class="tn" x="28" y="5.5">북</text><text x="50.5" y="28">동</text><text x="28" y="50.5">남</text><text x="5.5" y="28">서</text></svg></section>
   <section class="side">
+    <p id="viewonly" class="ro nokey" hidden>⚠️ 열쇠 없음 — 이 기기는 보기 전용입니다(장면 진행·승인·종결·처음으로 불가). 열쇠 링크로 다시 열어 주세요</p>
     <div id="steps" class="step"></div>
     <div id="cards"></div>
     <div id="bar" class="bar"></div>
-    <p id="viewonly" class="ro" hidden>보기 전용 — 장면 진행·승인·종결은 열쇠 링크로 연 관제 폰에서만</p>
     <p id="msg" class="msg"></p>
   </section>
 </main>
