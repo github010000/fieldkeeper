@@ -125,7 +125,7 @@ export const SCENES: Scene[] = [
     approveLabel: "공유·통보 승인",
     cam: { unit: "PTZ", ir: false },
     paths: {},
-    result: "드론 추적 · 관제탑 · 공항운영자 · 경찰에 경로 공유 → 드론 이탈 · 기록. 필드키퍼는 찾고 · 알리고 · 기록한다. 퇴치는 권한 있는 기관이 한다.",
+    result: "공항 탐지 카메라 추적 · 관제탑 · 공항운영자 · 경찰에 경로 공유 → 드론 이탈 · 기록. 필드키퍼는 경보를 받아 알리고 · 기록한다. 퇴치는 권한 있는 기관이 한다.",
     waitText: "탐지 카메라 추적 중 — 관계기관 통보 · 이탈 대기", closeLabel: "상황 해제 확인 — 종결", closeShort: "상황 해제", resolveS: 8, resolveMin: 5,
     held: "보류 — 관제탑에만 알린다.",
     flight: { use: "window", from: "1253", to: "1353" },
