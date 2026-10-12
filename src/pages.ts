@@ -245,15 +245,23 @@ function hush(){window.__said.push({sim:Math.round(sim()*60)/60,text:"(끊음)"}
 function setVoice(on){voiceOn=on;try{localStorage.setItem("fk_voice",on?"on":"off")}catch(e){}
   const b=$("#voice");if(b){b.innerHTML=on?'🔊<span class="vl"> 음성 켜짐</span>':'🔇<span class="vl"> 음성 안내 켜기</span>';b.classList.toggle("on",on)}
   if(on)speak("음성 안내를 켰습니다.");else try{speechSynthesis.cancel()}catch(e){}}
-const spk=(t)=>String(t).replace(/·/g," ").replace(/([A-Z])-(\\d)/g,"$1 $2").replace(/(\\d)\\.(\\d)km/g,"$1.$2킬로미터");
-const hmSpk=(m)=>Math.floor(m/60)+"시 "+(Math.floor(m%60)?Math.floor(m%60)+"분":"정각");
-const DONE_SPK={intrusion:"인계 완료",fod:"수거 완료",bird:"접근로 정상",drone:"드론 이탈"};
+// 읽을 말 — 숫자는 직접 한글로 바꾼다(합성 음성이 「100」을 「일영영」처럼 한 자씩 읽는다, 대장 10-12). 화면 글자는 그대로
+const KO_D=["","일","이","삼","사","오","육","칠","팔","구"],KO_H=["열두","한","두","세","네","다섯","여섯","일곱","여덟","아홉","열","열한"];
+function koN(n){n=Math.floor(n);if(!n)return "영";let s="";for(const [v,w] of [[1000,"천"],[100,"백"],[10,"십"]]){const d=Math.floor(n/v)%10;if(d)s+=(d===1?"":KO_D[d])+w}return s+KO_D[n%10]}
+// 받침이 있으면 a(을 · 이 · 은), 없으면 b
+function josa(w,a,b){const c=String(w).trim().slice(-1).charCodeAt(0)-0xac00;return c>=0&&c<11172&&c%28?a:b}
+const spk=(t)=>String(t).replace(/·/g,"와 ").replace(/\\s*[A-Z]-\\d+/g,"").replace(/(\\d+)\\.(\\d)\\s*km/g,(m,a,b)=>koN(+a)+" 점 "+koN(+b)+" 킬로미터")
+  .replace(/로봇 (\\d)/g,(m,a)=>"로봇 "+koN(+a)+" 번").replace(/\\d+/g,(m)=>koN(+m));
+const hmSpk=(m)=>{const h=Math.floor(m/60)%24,mi=Math.floor(m%60);return KO_H[h%12]+" 시 "+(mi?koN(mi)+" 분":"정각")};
+const KIND_SPK={intrusion:"침입",fod:"이물질",bird:"새 떼",drone:"미확인 드론"};
+const DONE_SPK={intrusion:"침입자를 관계기관에 인계했습니다.",fod:"이물질을 수거했습니다.",bird:"접근로가 정상입니다.",drone:"드론이 벗어났습니다."};
+const actSpk=(sc)=>spk(sc.approveLabel.replace(/\\s*승인$/,""));
 function alertSpk(sc,i){
-  const j=i.judge,k=KIND[sc.kind].ko.replace(/\\(.*\\)/,"");
-  let t=hmSpk(sc.min)+", "+spk(sc.zone)+" "+k+" 경보.";
-  if(j){t+=" 위험도 "+j.score+", "+j.grade+".";const f=j.parts[2].v;if(!/실패|없음/.test(f))t+=" 다음 "+f+".";
+  const j=i.judge;
+  let t=hmSpk(sc.min)+", "+spk(sc.zone)+"에서 "+KIND_SPK[sc.kind]+" 경보입니다.";
+  if(j){t+=" 위험도 "+koN(j.score)+", "+j.grade+".";const f=/(착륙|출발)\\s*(\\d+)분 뒤/.exec(j.parts[2].v);if(f)t+=" 다음 "+f[1]+"은 "+koN(+f[2])+" 분 뒤입니다.";
     if(j.late)t+=" 착륙이 로봇보다 먼저입니다. 관제탑에 공유했습니다."}
-  return t+" "+spk(sc.approveLabel)+"을 기다립니다.";
+  const a=actSpk(sc);return t+" "+a+josa(a,"을","를")+" 승인해 주세요.";
 }
 function announce(){
   if(ROLE!=="ops"||!run)return;
@@ -265,14 +273,14 @@ function announce(){
   if(st==="decide"&&!i.decision){
     sayOnce(b+"|alert",alertSpk(sc,i));
     if(r&&!j.late){const D=r.at-sc.travelMin-r.need,s=sim();
-      if(s>=D-1&&s<D)sayOnce(b+"|dl1","승인 마감 1분 전. "+hmSpk(D)+"까지 승인해야 "+(sc.kind==="fod"?"첫 출발 전에 수거를":"착륙 전에 퇴치를")+" 마칩니다.");
-      if(delayLate(sc,i))sayOnce(b+"|late","승인 지연. 착륙 전 퇴치 불가. 관제탑에 공유했습니다. 착륙 편은 관제탑이 판단합니다.")}
-    const n=Math.floor((el()-3)/30);if(n>=1&&n<=3)sayOnce(b+"|rem"+n,"승인 대기 중.")}
+      if(s>=D-1&&s<D)sayOnce(b+"|dl1","승인 마감 일 분 전입니다. "+hmSpk(D)+"까지 승인해야 "+(sc.kind==="fod"?"첫 출발 전에 수거를":"착륙 전에 퇴치를")+" 마칩니다.");
+      if(delayLate(sc,i))sayOnce(b+"|late","승인이 늦었습니다. 착륙 전에는 퇴치할 수 없어 관제탑에 공유했습니다. 착륙 편은 관제탑이 판단합니다.")}
+    const n=Math.floor((el()-3)/30);if(n>=1&&n<=3)sayOnce(b+"|rem"+n,"승인을 기다리고 있습니다.")}
   if(st==="acting"){
-    if(sc.kind==="drone")sayOnce(b+"|arr","탐지 카메라로 추적 중. 관제탑과 관계기관에 공유합니다.");
-    else sayOnce(b+"|arr",(j?j.unitLabel:"로봇")+" 현장 도착."+(holding()?" 착륙 통과 대기, 장비 정지.":""));
-    if(holdNow()>0&&!holding())sayOnce(b+"|pass","착륙 통과. 퇴치를 시작합니다.")}
-  if(st==="resolved")sayOnce(b+"|res",DONE_SPK[sc.kind]+". 확인하고 종결해 주세요.");
+    if(sc.kind==="drone")sayOnce(b+"|arr","공항 탐지 카메라가 추적 중입니다. 관제탑과 관계기관에 공유했습니다.");
+    else{const u=spk(j?j.unitLabel:"로봇");sayOnce(b+"|arr",u+josa(u,"이","가")+" 현장에 도착했습니다."+(holding()?" 착륙이 지나갈 때까지 장비를 끄고 기다립니다.":""))}
+    if(holdNow()>0&&!holding())sayOnce(b+"|pass","착륙이 지나갔습니다. 퇴치를 시작합니다.")}
+  if(st==="resolved")sayOnce(b+"|res",DONE_SPK[sc.kind]+" 카메라로 확인하고 종결해 주세요.");
 }
 const incOf=(n)=>inc.find((x)=>x.scene===n);
 ${CAM_JS}
@@ -554,7 +562,7 @@ if(ROLE==="ops"){const vb=$("#voice");vb.onclick=(e)=>{e.stopPropagation();unloc
 function act(a){
   wake();if(navigator.vibrate)navigator.vibrate(30);
   if(ROLE==="ops"){hush();pressedAt=Date.now();const sc=scene();
-    if(a==="approve"&&sc)speak(spk(sc.approveLabel)+".");else if(a==="hold")speak("보류.");else if(a==="close")speak("종결.")}
+    if(a==="approve"&&sc)speak("승인했습니다. "+(sc.kind==="drone"?"관제탑과 관계기관에 공유합니다.":actSpk(sc)+"합니다."));else if(a==="hold")speak("보류했습니다.");else if(a==="close")speak("종결했습니다.")}
   if(a==="next")post("/api/scene/next");
   else if(a==="approve"||a==="hold")post("/api/decide",{decision:a});
   else if(a==="close")post("/api/close");

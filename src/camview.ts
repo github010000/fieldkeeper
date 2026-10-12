@@ -146,6 +146,9 @@ function camSvg(st,sc,t,frac,simMin,q){
   else if(st==="decide"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">출동 대기</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">관리자 승인을 기다린다</text>';status="대기소"}
   else if(st==="closed"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">종결</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">대기소로 복귀</text>';status="복귀 중"}
   else{body='<text x="150" y="205" fill="'+dim+'" font-size="15" text-anchor="middle">대기 중</text>';status="대기소"}
+  // 착륙이 먼저인 조류 경보 — 관제탑에 넘겼다는 사실을 현장 카메라에도 보인다(관제 화면에만 있었다, 대장 10-11)
+  if(q&&sc&&sc.kind==="bird"&&(st==="moving"||st==="acting")){const by=st==="moving"?122:60;  // 이동 중엔 방위 띠 · 길 안내 아래로
+    body+='<rect x="24" y="'+by+'" width="252" height="24" rx="5" fill="rgba(13,22,32,.82)" stroke="#ffd27a" stroke-width="1"/><text x="150" y="'+(by+16)+'" fill="#ffd27a" font-size="12" text-anchor="middle" font-weight="800">관제탑 공유 · 착륙 편은 관제탑 판단</text>'}
   const rec=Math.floor(Date.now()/600)%2===0;
   const hud='<g font-family="ui-monospace,Menlo,monospace" font-weight="700">'+
     '<rect x="0" y="0" width="300" height="30" fill="rgba(0,0,0,.45)"/>'+(rec&&(st==="moving"||st==="acting"||st==="resolved")?'<circle cx="14" cy="15" r="5" fill="#ff3b30"/>':'')+
