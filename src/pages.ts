@@ -186,6 +186,8 @@ const canAct=()=>ROLE==="ops"&&(!locked||!!key);
 function stage(){
   if(!run||run.phase==="idle")return "idle";
   const sc=SCN[run.scene-1];
+  // 장면 구성이 바뀐 뒤 옛 회차가 남아 그 장면이 없으면 시작 전처럼 보인다(없는 장면을 읽다 0.1초마다 멈추던 일, 10-14 배포)
+  if(!sc&&(run.phase==="alert"||run.phase==="dispatch"||run.phase==="hold"||run.phase==="closed"))return "idle";
   if(run.phase==="alert")return el()<3?"travel":"decide";
   if(run.phase==="dispatch"){const a=el()-mv(sc.travelMin);return a<0?"moving":a<holdS()+sc.resolveS?"acting":"resolved"}
   return run.phase;
@@ -418,7 +420,7 @@ function lateNote(s,i){
 }
 function sceneCard(){
   const st=stage(),sc=scene();
-  if(st==="idle")return '<div class="card"><h3>시연 준비</h3><div class="meta">24시간 비행장 — 밤 04:20 울타리 침입, 아침 08:57 새 떼. 두 장면. 센서·레이더가 잡으면 필드키퍼가 판단하고, 관리자 한 명이 승인과 종결을 쥔다. 현장 일은 북쪽 · 남쪽 거점의 순찰 로봇 두 대가 한다.</div></div>';
+  if(st==="idle")return '<div class="card"><h3>시연 준비</h3><div class="meta">24시간 비행장 — 아침 08:57 새 떼, 밤 22:00 울타리 침입. 두 장면. 센서·레이더가 잡으면 필드키퍼가 판단하고, 관리자 한 명이 승인과 종결을 쥔다. 현장 일은 북쪽 · 남쪽 거점의 순찰 로봇 두 대가 한다.</div></div>';
   if(st==="summary")return summaryCard();
   const k=KIND[sc.kind],i=incOf(run.scene)||{};
   if(st==="travel")return '<div class="card" style="--c:'+k.color+'"><h3>'+hhmm(sc.min)+' 으로 이동 중…</h3></div>';
@@ -464,7 +466,7 @@ function stepBar(){
 function actions(){
   const st=stage(),sc=scene(),n=run?run.scene:0,i=sc?incOf(run.scene)||{}:{};
   const B=(id,label,cls,dis)=>'<button data-a="'+id+'" class="'+(cls||"")+'"'+(dis||busy?" disabled":"")+'>'+label+'</button>';
-  if(st==="idle")return B("next","▶ 첫 장면 (04:20 울타리 침입)","primary wide");
+  if(st==="idle")return B("next","▶ 첫 장면 (08:57 조류)","primary wide");
   if(st==="travel")return B("x","이동 중…","primary wide",true);
   if(st==="decide")return '<div class="decide">'+B("approve",esc(sc.approveLabel),"approve")+B("hold","보류","")+'</div>';
   if(st==="moving")return B("x","로봇 이동 중 — 도착 "+hhmm(i.arrive_sim||sim()),"primary wide",true);
@@ -575,7 +577,7 @@ function act(a){
 if(ROLE==="ops"){
   const openSheet=(on)=>{$("#sheet").hidden=!on;$("#sheet-bg").hidden=!on;disarm();$("#act").hidden=!canAct()};
   $("#menu").onclick=()=>openSheet(true);$("#sheet-bg").onclick=()=>openSheet(false);$("#close").onclick=()=>openSheet(false);
-  let armT=0;function disarm(){const b=$("#reset");b.classList.remove("arm");b.textContent="처음으로 (04:00)";clearTimeout(armT)}
+  let armT=0;function disarm(){const b=$("#reset");b.classList.remove("arm");b.textContent="처음으로 (08:00)";clearTimeout(armT)}
   $("#reset").onclick=async()=>{const b=$("#reset");
     if(!b.classList.contains("arm")){b.classList.add("arm");b.textContent="한 번 더 누르면 처음으로 돌아갑니다";armT=setTimeout(disarm,4000);return}
     openSheet(false);seen=new Set();cam=null;await post("/api/demo/start")};
@@ -613,7 +615,7 @@ export function dashboardPage(role: "ops" | "cam", build = pageBuild()): string 
 <title>${role === "cam" ? "필드키퍼 · 로봇 카메라" : "필드키퍼 · 관제"}</title><style>${CSS}</style></head>`;
   if (role === "cam") {
     return `${head}<body class="cam">
-<header class="band cam"><div class="brand"><span class="recdot"></span><span id="camunit">로봇 카메라</span><small>필드키퍼 · 가상 지방공항</small></div><div class="clock"><span id="date" class="date"></span><b id="clock">04:00</b></div></header>
+<header class="band cam"><div class="brand"><span class="recdot"></span><span id="camunit">로봇 카메라</span><small>필드키퍼 · 가상 지방공항</small></div><div class="clock"><span id="date" class="date"></span><b id="clock">08:00</b></div></header>
 <button id="unlock" class="unlock">🔊 소리 켜기<small>로봇 스피커 경고 방송 · 퇴치음 — 시연 전에 한 번 누르세요</small></button>
 <main class="camwrap"><div id="cam" class="camview"></div><p id="camline" class="camline"></p><p class="fine center">센서·로봇·카메라 화면 = 시뮬레이션</p></main>
 <script>${data}${JS}</script></body></html>`;
@@ -621,7 +623,7 @@ export function dashboardPage(role: "ops" | "cam", build = pageBuild()): string 
   return `${head}<body>
 <header class="band ops">
   <div class="brand">관제 — 관리자<small>필드키퍼 · 가상 지방공항</small></div>
-  <div class="clock"><span id="date" class="date"></span><b id="clock">04:00</b></div>
+  <div class="clock"><span id="date" class="date"></span><b id="clock">08:00</b></div>
   <button id="voice" class="voice-btn" aria-label="음성 안내">🔇<span class="vl"> 음성 안내 켜기</span></button>
   <button id="menu" class="menu-btn" aria-label="메뉴">☰</button>
 </header>
@@ -643,7 +645,7 @@ export function dashboardPage(role: "ops" | "cam", build = pageBuild()): string 
     <h4>자유 경보 — 질문에 답할 때</h4>
     <div class="row2">${kindButtons}</div>
     <h4>처음부터</h4>
-    <button id="reset" class="danger">처음으로 (04:00)</button>
+    <button id="reset" class="danger">처음으로 (08:00)</button>
   </div>
   <h4>무엇이 진짜인가</h4>
   <p class="fine">센서·로봇·카메라 화면 = 시뮬레이션 · 운항편 = 한국공항공사 실시간 운항 데이터(실제 지방공항) · 판단·승인·종결·기록 = 실제 동작 · 공항 배치는 가상</p>

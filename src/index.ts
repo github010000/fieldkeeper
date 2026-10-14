@@ -54,8 +54,8 @@ async function currentRun(env: Env): Promise<RunRow | null> {
 }
 async function newRun(env: Env): Promise<RunRow> {
   const now = Date.now();
-  const r: RunRow = { id: newId(), started_at: now, scene: 0, phase: "idle", phase_at: now, sim_base: 240, summary_json: null };
-  await env.DB.prepare("INSERT INTO runs (id, started_at, scene, phase, phase_at, sim_base) VALUES (?, ?, 0, 'idle', ?, 240)").bind(r.id, now, now).run();
+  const r: RunRow = { id: newId(), started_at: now, scene: 0, phase: "idle", phase_at: now, sim_base: 480, summary_json: null };
+  await env.DB.prepare("INSERT INTO runs (id, started_at, scene, phase, phase_at, sim_base) VALUES (?, ?, 0, 'idle', ?, 480)").bind(r.id, now, now).run();
   return r;
 }
 // 단계 바꾸기 — 읽은 단계 그대로일 때만(두 폰이 동시에 눌러도 한 번만 넘어간다)
@@ -97,7 +97,7 @@ export default {
     if (req.method !== "POST") return new Response("없는 주소입니다", { status: 404, headers: { "content-type": "text/plain; charset=utf-8" } });
     if (!authorized(req, env)) return NOKEY();
 
-    // 처음으로 — 새 회차(04:00, 장면 전). 지난 회차와 기록은 남긴다
+    // 처음으로 — 새 회차(08:00, 장면 전). 지난 회차와 기록은 남긴다
     if (p === "/api/demo/start") return json({ run: await newRun(env) });
 
     // 다음 장면(관제) — 경보로 빨리 감기. 시작 전이거나 관리자가 앞 장면을 종결했을 때만
