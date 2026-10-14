@@ -9,6 +9,13 @@ import { CAM_JS } from "./camview";
 const CSS = `
 :root{--bg:#0b1219;--panel:#121c26;--line:#223140;--ink:#e6edf3;--dim:#8a9aab;--accent:#3ea6ff;--ok:#3ecf8e;
   --grass:#11241a;--grass-dot:#1b3626;--strip:#16301f;--rwy:#2c333c;--twy:#4a4a32;--apron:#1f2832;--bldg:#3b4958;--fence:#7f9a6a;--unit:#3ea6ff}
+/* 낮(시연 시계 06:00~18:59) — 지도는 낮 비행장으로, 카메라 폰은 밝은 화면으로. 관제 화면의 틀(바탕 · 카드 · 단추)은 낮에도 어둡게 둔다(관제실 화면은 보통 어둡다) — 대장 10-14 「아침 출동이 밤과 같은 남색」 */
+html[data-tod="day"]{--grass:#6d9156;--grass-dot:#7ea365;--strip:#7fa566;--rwy:#4b525a;--twy:#8f8a66;--apron:#a9b0b6;--bldg:#d5dbe0;--fence:#f4f7ef}
+html[data-tod="day"] .mapbox{background:#b4bfa9}
+html[data-tod="day"] .lbl,html[data-tod="day"] .scale text{fill:#18240f} html[data-tod="day"] .scale rect{fill:#18240f}
+html[data-tod="day"] body.cam{--bg:#e8edf1;--ink:#0b1219;--dim:#4d5d6d;--line:#c3ccd5;background:var(--bg);color:var(--ink)}
+html[data-tod="day"] body.cam header{background:rgba(236,241,245,.96)}
+html[data-tod="day"]:has(body.cam){background:#e8edf1}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;background:var(--bg);color:var(--ink);
@@ -518,6 +525,7 @@ function sounds(st){
 }
 function tick(){
   $("#clock").textContent=hhmm(sim());$("#date").textContent=kstDate();
+  {const m=((Math.floor(sim())%1440)+1440)%1440,tod=m>=360&&m<1140?"day":"night";if(document.documentElement.dataset.tod!==tod)document.documentElement.dataset.tod=tod}
   {const rc=$("#race"),sc=scene(),i=run&&incOf(run.scene);if(rc&&sc&&i&&i.judge&&i.judge.race&&i.decision!=="approve")rc.innerHTML=raceText(sc,i)}
   const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.judge?1:0)+(i.closed_sim!=null?1:0)+(i.judge&&i.judge.lateByDelay?1:0)).join(),(scene()&&incOf(run.scene)?delayLate(scene(),incOf(run.scene)):0),(scene()&&stage()==="acting"?holding():0),manual.length,run&&run.summary?1:0].join("|");
   if(key2!==shown){shown=key2;render();

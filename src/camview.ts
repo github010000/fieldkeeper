@@ -117,6 +117,12 @@ function camSvg(st,sc,t,frac,simMin,q){
     return "";
   }
   const bgSky=sc&&!ir&&sc.kind==="bird"?sky("#9fb8c9","#d9e4ea"):"";
+  // 낮(06:00~18:59, 적외선 아님)의 대기 · 종결 화면 — 남색 빈 화면 대신 거점에서 보는 낮 풍경 위에 글자(대장 10-14)
+  const mm=((Math.floor(simMin)%1440)+1440)%1440, day=!ir&&mm>=360&&mm<1140;
+  const still=(a,b)=>day?sky("#9fb8c9","#d9e4ea")+ground("#4f6646")+horizon(0,190)+'<rect x="40" y="176" width="220" height="60" rx="8" fill="rgba(13,22,32,.6)"/>'+
+    (a?'<text x="150" y="'+(b?200:211)+'" fill="#fff" font-size="16" text-anchor="middle" font-weight="700">'+a+'</text>':'')+(b?'<text x="150" y="'+(a?224:211)+'" fill="#d6dee6" font-size="13" text-anchor="middle">'+b+'</text>':'')
+    :(a?'<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">'+a+'</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">'+b+'</text>'
+      :'<text x="150" y="205" fill="'+dim+'" font-size="15" text-anchor="middle">'+b+'</text>');
   if(st==="moving"){
     const P=camPose(sc,frac);
     body=groundView(P);
@@ -129,9 +135,9 @@ function camSvg(st,sc,t,frac,simMin,q){
     status=done?(k==="intrusion"?"인계 완료 · 관리자 확인 대기":"접근로 정상 · 관리자 확인 대기")
       :(k==="intrusion"?(t>sc.resolveS*0.55?"관계기관 도착 · 인계 중":"경고 방송 · 위치 공유"):(q&&t<0?"착륙 통과 대기 · 장비 정지":q?"착륙 통과 · 다음 편 대비 퇴치":"폭음경보기 · 음파퇴치기 가동"))}
   else if(st==="hold"){label="고정 센서 — "+sc.sensor;body=bgSky+scene(0,false);status="보류 · 장비 대기"}
-  else if(st==="decide"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">출동 대기</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">관리자 승인을 기다린다</text>';status="거점 · 순찰"}
-  else if(st==="closed"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">종결</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">순찰로 복귀</text>';status="복귀 중"}
-  else{body='<text x="150" y="205" fill="'+dim+'" font-size="15" text-anchor="middle">대기 중</text>';status="거점 · 순찰"}
+  else if(st==="decide"){body=still("출동 대기","관리자 승인을 기다린다");status="거점 · 순찰"}
+  else if(st==="closed"){body=still("종결","순찰로 복귀");status="복귀 중"}
+  else{body=still("","대기 중");status="거점 · 순찰"}
   // 착륙이 먼저인 조류 경보 — 관제탑에 넘겼다는 사실을 현장 카메라에도 보인다(관제 화면에만 있었다, 대장 10-11)
   if(q&&sc&&sc.kind==="bird"&&(st==="moving"||st==="acting")){const by=st==="moving"?122:60;  // 이동 중엔 방위 띠 · 길 안내 아래로
     body+='<rect x="24" y="'+by+'" width="252" height="24" rx="5" fill="rgba(13,22,32,.82)" stroke="#ffd27a" stroke-width="1"/><text x="150" y="'+(by+16)+'" fill="#ffd27a" font-size="12" text-anchor="middle" font-weight="800">관제탑 공유 · 착륙 편은 관제탑 판단</text>'}
