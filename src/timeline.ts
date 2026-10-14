@@ -17,6 +17,8 @@ export function simClock(r: RunClock | null, now: number, sc: number[][], hold =
   const TRAVEL = 3, W = 1 / 6;
   if (!r || r.phase === "idle") return 240;
   const e = Math.max(0, (now - r.phase_at) / 1000);
+  // 장면 수가 줄어든 뒤 옛 회차(예: 장면 4)가 남아 있으면 그 장면이 없다 — 멈춘 시각을 돌려준다(10-14 배포 때 500)
+  if ((r.phase === "alert" || r.phase === "dispatch") && !sc[r.scene - 1]) return r.sim_base;
   if (r.phase === "alert") {
     const m = sc[r.scene - 1][0];
     return e < TRAVEL ? r.sim_base + ((m - r.sim_base) * e) / TRAVEL : m + (e - TRAVEL) * W;
