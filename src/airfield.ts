@@ -5,11 +5,12 @@
 export const VIEW = { w: 220, h: 470 };
 export const M_PER_UNIT = 10;
 
-// 장비 거점 — 지상 로봇 2대는 소방대 옆 대기소. 북쪽 접근로 가까이 조류 퇴치 거점(로봇 2가 새벽 수거 뒤 옮겨 대기 — scenario.ts homes)
-// 조류 퇴치에 드론은 쓰지 않는다(대장 10-11): 로봇에 폭음경보기 · 음파퇴치기를 싣는다
+// 장비 거점 — 실증 = 순찰형 로봇 2대(한 기종), 북쪽 · 남쪽 접근로 끝에 바짝(제품은 동서남북 4거점, 10-14 대장).
+// 로봇은 초속 1m로 느려서 거점을 접근로 앞 울타리 가까이 둔다. 평소 순찰 · 경보 때 그 자리에서 대응 · 자율 충전(scenario.ts)
+// 조류 퇴치에 드론은 쓰지 않는다(대장 10-11): 로봇에 음파퇴치기 · 폭음경보기 · 녹색 레이저를 싣는다(공포탄은 사람)
 export const UNITS = [
-  { id: "R1", type: "robot", label: "로봇 1", x: 62, y: 330 },
-  { id: "R2", type: "robot", label: "로봇 2", x: 76, y: 330 },
+  { id: "R1", type: "robot", label: "로봇 1", base: "남쪽 거점", x: 106, y: 410 },
+  { id: "R2", type: "robot", label: "로봇 2", base: "북쪽 거점", x: 134, y: 50 },
 ] as const;
 
 const RWY = { x: 120, y0: 100, y1: 380, w: 6 };        // 활주로(중심선 x)
@@ -42,7 +43,6 @@ export function mapSvg(): string {
     <rect x="${TWY_X - 1.2}" y="${LINKS[0] - 1.2}" width="2.4" height="${LINKS[4] - LINKS[0] + 2.4}"/>
     ${links}
     <rect x="88" y="214" width="${TWY_X - 88}" height="2.4"/><rect x="88" y="262" width="${TWY_X - 88}" height="2.4"/>
-    <rect x="80" y="329" width="${TWY_X - 80}" height="2.4"/>
   </g>
   <text class="tw big" x="${TWY_X - 4}" y="146">A</text>
   <rect class="rwy" x="${x - w / 2}" y="${y0}" width="${w}" height="${y1 - y0}"/>
@@ -57,10 +57,10 @@ export function mapSvg(): string {
   <text class="lbl" x="59.5" y="172">관제탑</text>
   <rect class="bldg" x="46" y="306" width="16" height="10" rx="1"/>
   <text class="lbl" x="54" y="302">소방대</text>
-  <rect class="base" x="54" y="322" width="30" height="16" rx="2"/>
-  <text class="lbl" x="69" y="348">로봇 대기소</text>
-  <rect class="base" x="146" y="58" width="20" height="16" rx="2"/>
-  <text class="lbl" x="156" y="84">조류 퇴치 거점</text>
+  <rect class="base" x="126" y="44" width="16" height="12" rx="2"/>
+  <text class="lbl start" x="145" y="52">북쪽 거점</text>
+  <rect class="base" x="98" y="404" width="16" height="12" rx="2"/>
+  <text class="lbl end" x="95" y="412">남쪽 거점</text>
   <g class="radar">
     <circle class="sweep" cx="170" cy="222" r="3.5"/>
     <circle cx="170" cy="222" r="3.5"/>

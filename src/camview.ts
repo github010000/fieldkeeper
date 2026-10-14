@@ -1,5 +1,6 @@
 // 로봇 카메라 화면 — 시뮬레이션 그림(SVG). 실제 영상이 아니다: 감시 카메라 화면처럼 단순한 모양 + 녹화 표시 + 움직임.
 // 화면 쪽 스크립트에 그대로 실린다(문자열). camSvg(st, sc, t, frac, simMin) → SVG 문자열
+//   장면 = 울타리 침입(밤, 적외선) · 조류(아침) — 이물질 · 드론은 10-14 범위에서 뺐다
 //   st   = idle · travel · decide · moving · acting(조치 중) · resolved(해결) · hold · closed · summary
 //   t    = 도착(또는 보류) 뒤 지난 실제 초 — 조치 장면의 움직임에 쓴다. sc.resolveS 초에 해결 장면이 된다
 //   날짜 = 화면 쪽 kstDate()(그날의 실제 날짜 — 데모데이에는 2026.10.17)
@@ -27,7 +28,7 @@ function camSvg(st,sc,t,frac,simMin,q){
   const W=300,H=400, ir=sc&&sc.cam.ir;
   const ink=ir?"#9dffb0":"#e8f1f8", dim=ir?"#3f7a4c":"#7d8c99", bg=ir?"#031208":"#0d1620";
   const unit=sc?sc.cam.unit:"R1";
-  let body="", status="", label=unit==="PTZ"?"공항 드론 탐지 카메라":"로봇 카메라 "+unit;
+  let body="", status="", label="로봇 카메라 "+unit;
   const rnd=(i,k)=>{const x=Math.sin(i*127.1+k*311.7)*43758.5453;return x-Math.floor(x)};
   const ground=(c)=>'<rect x="0" y="190" width="300" height="210" fill="'+c+'"/>';
   const sky=(a,b)=>'<defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+a+'"/><stop offset="1" stop-color="'+b+'"/></linearGradient></defs><rect width="300" height="400" fill="url(#sk)"/>';
@@ -89,7 +90,7 @@ function camSvg(st,sc,t,frac,simMin,q){
         s+='<circle cx="'+x+'" cy="'+(y-64)+'" r="7.5" fill="'+ink+'"/><rect x="'+(x-9)+'" y="'+(y-55)+'" width="18" height="30" rx="4" fill="'+ink+'"/>'+
           '<rect x="'+(x-8)+'" y="'+(y-27)+'" width="7" height="27" rx="2" fill="'+ink+'"/><rect x="'+(x+1)+'" y="'+(y-27)+'" width="7" height="27" rx="2" fill="'+ink+'"/>'+
           '<rect x="'+(x-14)+'" y="'+(y-53)+'" width="5" height="24" rx="2" fill="'+ink+'"/><rect x="'+(x+9)+'" y="'+(y-53)+'" width="5" height="24" rx="2" fill="'+ink+'"/>';
-        if(track)s+=box(x-18,y-74,36,86,"사람 "+(i+1)+(tt>=sc.resolveS?" · 인계":" · 추적"),ink)});
+        if(track)s+=box(x-18,y-74,36,86,"사람 "+(i+1)+(tt>=sc.resolveS?" · 인계":" · 감시"),ink)});
       const rs=sc.resolveS,car=Math.min(1,Math.max(0,(tt-rs*0.55)/(rs*0.3)));
       if(track&&car>0){const cx=-70+car*150,on=Math.floor(tt*4)%2===0;
         s+='<rect x="'+cx+'" y="292" width="76" height="26" rx="5" fill="'+dim+'"/><rect x="'+(cx+14)+'" y="280" width="44" height="16" rx="4" fill="'+dim+'"/>'+
@@ -97,15 +98,6 @@ function camSvg(st,sc,t,frac,simMin,q){
           '<circle cx="'+(cx+16)+'" cy="320" r="7" fill="#000"/><circle cx="'+(cx+60)+'" cy="320" r="7" fill="#000"/>'+box(cx-4,268,84,58,"관계기관 도착",ink)}
       if(track&&tt>=rs)s+='<rect x="60" y="120" width="180" height="40" rx="6" fill="none" stroke="'+ink+'" stroke-width="2"/><text x="150" y="146" fill="'+ink+'" font-size="17" text-anchor="middle" font-weight="800">인계 완료</text>';
       else if(track&&Math.floor(tt*2)%2===0)s+='<text x="150" y="350" fill="'+ink+'" font-size="15" text-anchor="middle" font-weight="700">◀)) 경고 방송 중</text>';
-      return s;
-    }
-    if(sc.kind==="fod"){
-      let s=ground("#0a2412")+'<path d="M95,190 L205,190 L300,400 L0,400 Z" fill="#123a1d"/>';
-      for(let i=0;i<5;i++){const y=200+i*40;s+='<rect x="'+(148-i*0.6)+'" y="'+y+'" width="'+(4+i*1.2)+'" height="'+(14+i*4)+'" fill="'+dim+'"/>'}
-      const got=track&&tt>5;
-      if(!got)s+='<path d="M140,300 l14,-6 l9,5 l-6,7 l-15,2 z" fill="'+ink+'"/>'+box(126,282,48,32,"금속 조각",ink);
-      if(track&&tt>2.5&&!got){const d=Math.min(1,(tt-2.5)/2.5);s+='<path d="M150,400 L150,'+(400-d*92)+' M140,'+(400-d*92)+' h20" stroke="'+ink+'" stroke-width="5" fill="none"/>'}
-      if(got)s+='<rect x="70" y="270" width="160" height="44" rx="6" fill="none" stroke="'+ink+'" stroke-width="2"/><text x="150" y="298" fill="'+ink+'" font-size="17" text-anchor="middle" font-weight="800">수거 완료 · 사진 기록</text>';
       return s;
     }
     if(sc.kind==="bird"){
@@ -122,30 +114,24 @@ function camSvg(st,sc,t,frac,simMin,q){
       else s+='<text x="150" y="200" fill="#0f5132" font-size="17" text-anchor="middle" font-weight="800">접근로 정상</text>';
       return s;
     }
-    let s='<rect x="0" y="330" width="300" height="70" fill="#22303a"/>';
-    const out=Math.max(0,tt-sc.resolveS*0.5),x=150+Math.sin(tt/2)*40-out*out*9,y=170+Math.cos(tt/3)*14-out*4;
-    if(track&&tt>=sc.resolveS)return s+'<text x="150" y="190" fill="#0f5132" font-size="17" text-anchor="middle" font-weight="800">드론 이탈 · 통보 완료</text>';
-    s+='<path d="M'+(x-9)+','+(y-9)+' L'+(x+9)+','+(y+9)+' M'+(x+9)+','+(y-9)+' L'+(x-9)+','+(y+9)+'" stroke="#1a2530" stroke-width="3"/>';
-    [[-9,-9],[9,-9],[-9,9],[9,9]].forEach(([a,b])=>s+='<circle cx="'+(x+a)+'" cy="'+(y+b)+'" r="4" fill="none" stroke="#1a2530" stroke-width="2"/>');
-    s+=box(x-24,y-24,48,48,"드론 · 2.7km","#c0392b");
-    return s;
+    return "";
   }
-  const bgSky=sc&&!ir?(sc.kind==="drone"||sc.kind==="bird"?sky("#9fb8c9","#d9e4ea"):""):"";
+  const bgSky=sc&&!ir&&sc.kind==="bird"?sky("#9fb8c9","#d9e4ea"):"";
   if(st==="moving"){
     const P=camPose(sc,frac);
     body=groundView(P);
     if(P)body+=tape(P.h)+navBar(P);
-    // 조류 — 출발과 함께 음파퇴치기(도달 3km)를 켠다
+    // 조류 — 출발과 함께 음파퇴치기를 켠다
     if(sc.kind==="bird"&&Math.floor(Date.now()/500)%2===0)body+=q?'<text x="150" y="350" fill="#ffd27a" font-size="15" text-anchor="middle" font-weight="700">퇴치 장비 정지 · 이동 중(착륙 먼저)</text>':'<text x="150" y="350" fill="#ffd27a" font-size="15" text-anchor="middle" font-weight="700">◀)) 음파퇴치기 가동 · 이동 중</text>';
     status="이동 중 · "+(P?P.name+" · ":"")+"도착까지 "+Math.max(0,Math.ceil((1-frac)*sc.travelMin))+"분";
   }else if(st==="acting"||st==="resolved"){body=bgSky+scene(t,true);
     const done=st==="resolved",k=sc.kind;
-    status=done?(k==="intrusion"?"인계 완료 · 관리자 확인 대기":k==="fod"?"수거 완료 · 관리자 확인 대기":k==="bird"?"접근로 정상 · 관리자 확인 대기":"드론 이탈 · 관리자 확인 대기")
-      :(k==="intrusion"?(t>sc.resolveS*0.55?"관계기관 도착 · 인계 중":"추적 · 경고 방송 · 위치 공유"):k==="fod"?"현장 도착 · 수거 중":k==="bird"?(q&&t<0?"착륙 통과 대기 · 장비 정지":q?"착륙 통과 · 다음 편 대비 퇴치":"폭음경보기 · 음파퇴치기 가동"):"탐지 카메라 추적 · 관제탑·관계기관 공유")}
+    status=done?(k==="intrusion"?"인계 완료 · 관리자 확인 대기":"접근로 정상 · 관리자 확인 대기")
+      :(k==="intrusion"?(t>sc.resolveS*0.55?"관계기관 도착 · 인계 중":"경고 방송 · 위치 공유"):(q&&t<0?"착륙 통과 대기 · 장비 정지":q?"착륙 통과 · 다음 편 대비 퇴치":"폭음경보기 · 음파퇴치기 가동"))}
   else if(st==="hold"){label="고정 센서 — "+sc.sensor;body=bgSky+scene(0,false);status="보류 · 장비 대기"}
-  else if(st==="decide"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">출동 대기</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">관리자 승인을 기다린다</text>';status="대기소"}
-  else if(st==="closed"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">종결</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">대기소로 복귀</text>';status="복귀 중"}
-  else{body='<text x="150" y="205" fill="'+dim+'" font-size="15" text-anchor="middle">대기 중</text>';status="대기소"}
+  else if(st==="decide"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">출동 대기</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">관리자 승인을 기다린다</text>';status="거점 · 순찰"}
+  else if(st==="closed"){body='<text x="150" y="200" fill="'+ink+'" font-size="16" text-anchor="middle" font-weight="700">종결</text><text x="150" y="224" fill="'+dim+'" font-size="13" text-anchor="middle">순찰로 복귀</text>';status="복귀 중"}
+  else{body='<text x="150" y="205" fill="'+dim+'" font-size="15" text-anchor="middle">대기 중</text>';status="거점 · 순찰"}
   // 착륙이 먼저인 조류 경보 — 관제탑에 넘겼다는 사실을 현장 카메라에도 보인다(관제 화면에만 있었다, 대장 10-11)
   if(q&&sc&&sc.kind==="bird"&&(st==="moving"||st==="acting")){const by=st==="moving"?122:60;  // 이동 중엔 방위 띠 · 길 안내 아래로
     body+='<rect x="24" y="'+by+'" width="252" height="24" rx="5" fill="rgba(13,22,32,.82)" stroke="#ffd27a" stroke-width="1"/><text x="150" y="'+(by+16)+'" fill="#ffd27a" font-size="12" text-anchor="middle" font-weight="800">관제탑 공유 · 착륙 편은 관제탑 판단</text>'}

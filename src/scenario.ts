@@ -1,23 +1,22 @@
-// 시연 시나리오 — 페르소나_시나리오_필드키퍼_20261011.html 의 24시간 네 장면 + 분기 말.
+// 시연 시나리오 — 밤 울타리 침입 · 아침 조류 두 장면 + 분기 말(10-14 범위 = 조류 + 순찰 중 침입 경고, 이물질 · 드론은 뺐다 — 투자논리_정리_20261014.html).
 // 장면마다 「오늘(사실)」과 「필드키퍼(추천 → 사람 승인 → 출동 → 결과)」를 둔다. 무작위 값은 없다.
 // 공항은 가상의 지방공항이다 — 앱에는 실제 공항 이름을 쓰지 않는다(사실 문장도 「국내 한 공항」으로).
 // 좌표 = 지도 viewBox(0 0 220 470) 기준(src/airfield.ts). 운항편만 실제 데이터(src/flights.ts)다.
 
-export type Kind = "intrusion" | "fod" | "bird" | "drone";
+export type Kind = "intrusion" | "bird";
 
 export const KIND: Record<Kind, { ko: string; mark: string; color: string }> = {
   intrusion: { ko: "울타리 침입", mark: "침", color: "#ff5c5c" },
-  fod: { ko: "활주로 이물질", mark: "물", color: "#ffb02e" },
   bird: { ko: "조류(새 떼)", mark: "새", color: "#ff7a2e" },
-  drone: { ko: "미확인 드론", mark: "드", color: "#c77dff" },
 };
 
 export interface Spot { zone: string; sensor: string; x: number; y: number }
 
 import { M_PER_UNIT } from "./airfield";
 
-// 시뮬레이션 가정 — 지도 1칸 = 10m(airfield.ts), 지상 로봇 15km/h. 이동 시간(시연 분)은 경로 길이에서 계산한다
-const SPEED_M_PER_MIN = { robot: 15000 / 60 } as const;
+// 시뮬레이션 가정 — 지도 1칸 = 10m(airfield.ts), 순찰형 무한궤도 로봇 초속 1.0m(기준 제품 申昊 L7-T1, 10-14). 이동 시간(시연 분)은 경로 길이에서 계산한다
+// 느리므로 거점을 접근로 끝에 바짝 둔다 — 북쪽 거점 → 접근로 앞 울타리 약 130m = 2분 남짓(08:57 경보 → 08:59 도착 유지)
+const SPEED_M_PER_MIN = { robot: 60 } as const;
 const UNIT_TYPE: Record<string, "robot"> = { R1: "robot", R2: "robot" };
 
 type Pt = [number, number];
@@ -43,9 +42,9 @@ export interface Scene extends Spot {
   autoShare?: string;            // 그때 경보와 함께 자동으로 나가는 정보 공유(장비 이동 아님)
   approveLabel: string;
   cam: { unit: string; ir: boolean };  // 로봇 카메라 화면(/cam) — 어느 장비의 눈인가 · 야간 적외선 톤인가
-  paths: Record<string, Pt[]>;   // 승인 뒤 움직이는 장비와 경로(대기소 → 현장)
+  paths: Record<string, Pt[]>;   // 승인 뒤 움직이는 장비와 경로(거점 또는 순찰 위치 → 현장)
   legs?: Record<string, Leg[]>;  // 경로 구간마다 이름 · 노면 — 로봇 카메라 이동 화면(내비 안내 · 꺾임)에 쓴다
-  homes?: Record<string, Pt>;    // 이 장면부터 장비가 대기하는 곳(로봇 2 = 새벽 수거 뒤 북쪽 조류 퇴치 거점)
+  homes?: Record<string, Pt>;    // 이 장면 때 장비가 있는 곳(거점이 아니면 순찰 위치 — 로봇 1 = 밤 동쪽 울타리 순찰)
   travelMin: number;             // 가장 늦게 도착하는 장비 기준(시연 분)
   result: string;                // 도착 뒤 — 카메라로 보이는 조치(해결된 모습)
   // 종결 조건 — 로봇이 도착해도 바로 끝나지 않는다(침입자는 관계기관이 넘겨받아야 끝난다).
@@ -67,68 +66,38 @@ export const SCENES: Scene[] = [
     note: "사람 2명 추정 · 울타리 안쪽으로 이동",
     today: "2023년 3월 국내 한 공항 — 울타리 센서 경보 04:20, 운영센터 접수 04:33. 사람에게 닿기까지 13분.",
     todayShort: "접수까지 13분",
-    situation: "울타리 장력 센서 E-2 경보 · 고정 카메라에 사람 2명 — 울타리 안쪽으로 이동",
-    action: "가장 가까운 로봇 1 출동 — 침입자 추적 · 경고 방송 · 위치를 관제와 관계기관에 실시간 공유",
+    situation: "울타리 장력 센서 E-2 경보 · 고정 카메라에 사람 2명 — 울타리 안쪽으로 이동 · 로봇 1이 동쪽 울타리를 순찰 중(약 200m)",
+    // 로봇은 초속 1m — 사람을 쫓지 않는다. 순찰 중 가까이 가서 경고하고, 위치를 넘기고, 인계는 관계기관(범위 = 순찰 중 침입 경고, 10-14)
+    action: "순찰 중인 로봇 1이 경보 지점으로(약 200m) — 경고 방송 · 카메라로 위치를 관제와 관계기관에 실시간 공유. 쫓거나 붙잡지 않는다",
     approveLabel: "로봇 1 출동 승인",
     cam: { unit: "R1", ir: true },
-    paths: { R1: [[62, 330], [102, 330], [102, 304], [120, 304], [192, 334]] },
-    legs: { R1: [{ name: "대기소 연결로", surface: "twy" }, { name: "유도로 A", surface: "twy" }, { name: "유도로 A4", surface: "twy" }, { name: "활주로 건너 잔디", surface: "grass" }] },
-    result: "로봇 1이 침입자 2명을 추적 · 경고 방송으로 멈춰 세움 → 관계기관 도착 · 인계 완료.",
-    waitText: "추적 · 경고 방송 중 — 관계기관 도착 대기", closeLabel: "인계 확인 — 종결", closeShort: "인계", resolveS: 16, resolveMin: 8,
-    held: "보류 — 로봇 1 대기. 울타리 고정 카메라로 계속 지켜본다.",
+    homes: { R1: [190, 356] },
+    paths: { R1: [[190, 356], [192, 336]] },
+    legs: { R1: [{ name: "동쪽 울타리 순찰로", surface: "grass" }] },
+    result: "로봇 1이 경고 방송 · 위치 공유 → 관계기관 도착 · 인계 완료. 로봇 1은 순찰로 돌아간다.",
+    waitText: "경고 방송 · 위치 공유 중 — 관계기관 도착 대기", closeLabel: "인계 확인 — 종결", closeShort: "인계", resolveS: 16, resolveMin: 8,
+    held: "보류 — 로봇 1은 순찰 위치에서 대기. 울타리 고정 카메라로 계속 지켜본다.",
     flight: { use: "next", from: "0420", to: "0900" },
   }),
   scene({
-    id: "s2", min: hm(5, 0), kind: "fod", zone: "활주로 중앙부", sensor: "활주로 순찰 로봇 카메라", x: 120, y: 240,
-    note: "금속 조각 1건 · 밤사이 순찰에서 발견",
-    today: "활주로 이물질 점검은 사람이 차량으로 돌며 눈으로 한다(해외 공항도 하루 2~4회 수준).",
-    todayShort: "차량 점검 하루 2~4회",
-    situation: "밤사이 순찰 카메라 — 활주로 중앙부 금속 조각 1건",
-    action: "로봇 2 출동 — 이물질 수거 · 수거 전후 사진 기록",
-    approveLabel: "로봇 2 수거 승인",
-    cam: { unit: "R2", ir: true },
-    paths: { R2: [[76, 330], [102, 330], [102, 240], [117, 240]] },
-    legs: { R2: [{ name: "대기소 연결로", surface: "twy" }, { name: "유도로 A", surface: "twy" }, { name: "유도로 A3", surface: "twy" }] },
-    result: "이물질 1건 수거 · 전후 사진 기록. 관리자가 카메라로 확인하면 「활주로 이상 없음」. 로봇 2는 북쪽 조류 퇴치 거점으로 옮겨 아침을 대기한다.",
-    waitText: "수거 중", closeLabel: "수거 확인 — 활주로 사용 가능", closeShort: "수거 확인", resolveS: 6, resolveMin: 2,
-    held: "보류 — 로봇 2 대기. 첫 편 전에 다시 판단한다.",
-    flight: { use: "firstDepart", from: "0500", to: "1000" },
-  }),
-  scene({
-    id: "s3", min: hm(8, 57), kind: "bird", zone: "북쪽 접근로", sensor: "조류 레이더", x: 124, y: 16,
+    id: "s2", min: hm(8, 57), kind: "bird", zone: "북쪽 접근로", sensor: "조류 레이더", x: 124, y: 16,
     note: "새 떼 약 30마리 · 활주로 18 접근 경로",
     today: "2024년 12월 국내 한 공항 — 조류 경보 08:57, 사고 09:03. 경보에서 사고까지 6분.",
     todayShort: "경보 → 사고 6분",
     situation: "조류 레이더 — 새 떼 약 30마리 · 북쪽 접근로(활주로 18 접근 경로)로 이동",
-    action: "북쪽 거점 로봇 2 출동(이동 약 460m) — 음파퇴치기(소리 도달 3km)를 켜고 접근로 앞 울타리에서 폭음경보기로 새 떼를 몰아낸다",
+    // 녹색 레이저는 고시(제2026-256호 제32조의2)상 수평 0도 이하만 — 나는 새 떼에는 쓰지 않는다(땅에 앉은 새 몫)
+    action: "북쪽 거점 로봇 2 출동(이동 약 130m) — 음파퇴치기를 켜고 접근로 앞 울타리에서 폭음경보기로 새 떼를 몰아낸다. 나는 새라 녹색 레이저는 쓰지 않는다",
     // 착륙이 로봇 퇴치보다 먼저 오면(judge.ts race) — 착륙 편은 관제탑이 판단하고(경보와 함께 자동 공유), 로봇은 다음 편 전에 접근로를 정리한다(대장 10-11)
-    actionLate: "관제탑에 조류 정보 즉시 공유(착륙 편 복행 · 지연은 관제탑 판단) · 로봇 2 출동(이동 약 460m)은 다음 편 전 접근로 정리 — 퇴치 시작은 관제탑과 맞춘다",
+    actionLate: "관제탑에 조류 정보 즉시 공유(착륙 편 복행 · 지연은 관제탑 판단) · 로봇 2 출동(이동 약 130m)은 다음 편 전 접근로 정리 — 퇴치 시작은 관제탑과 맞춘다",
     autoShare: "관제탑에 조류 정보 공유 — 경보와 함께 자동(정보 전달 · 장비는 승인 뒤에만 움직인다)",
     approveLabel: "로봇 2 퇴치 출동 승인",
     cam: { unit: "R2", ir: false },
-    homes: { R2: [156, 66] },
-    paths: { R2: [[156, 66], [156, 42], [134, 38]] },
+    paths: { R2: [[134, 50], [134, 42], [131, 38]] },
     legs: { R2: [{ name: "북쪽 순찰로", surface: "grass" }, { name: "접근로 앞 울타리", surface: "grass" }] },
     result: "새 떼 접근로 밖으로 이동 · 퇴치 기록. 같은 무리가 돌아오면 다시 간다.",
     waitText: "음파·폭음 퇴치 중", closeLabel: "접근로 정상 확인 — 종결", closeShort: "접근로 정상", resolveS: 8, resolveMin: 2,
     held: "보류 — 로봇 2 거점 대기. 관제탑에 조류 정보를 전한다.",
     flight: { use: "nextArrival", from: "0857", to: "0957" },
-  }),
-  scene({
-    id: "s4", min: hm(12, 53), kind: "drone", zone: "남서쪽 경계 밖 2.7km", sensor: "레이더(조류·드론 구분)", x: 11, y: 430,
-    distM: 2700,
-    note: "미승인 드론 1대 · 공항 쪽으로 접근",
-    today: "2020년 11월 국내 한 공항 — 불법 드론으로 이착륙 세 차례 중단, 11편 지연·1편 회항.",
-    todayShort: "11편 지연 · 1편 회항",
-    situation: "레이더(조류·드론 구분) — 미승인 드론 1대 · 남서쪽 2.7km · 공항 쪽으로 접근",
-    action: "공항 드론 탐지 카메라로 추적 · 위치와 경로를 관제탑 · 공항운영자 · 경찰에 공유(퇴치 결정과 실행은 공항운영자 · 관계기관 — 공항시설법 제56조③)",
-    approveLabel: "공유·통보 승인",
-    cam: { unit: "PTZ", ir: false },
-    paths: {},
-    result: "공항 탐지 카메라 추적 · 관제탑 · 공항운영자 · 경찰에 경로 공유 → 드론 이탈 · 기록. 필드키퍼는 경보를 받아 알리고 · 기록한다. 퇴치는 권한 있는 기관이 한다.",
-    waitText: "탐지 카메라 추적 중 — 관계기관 통보 · 이탈 대기", closeLabel: "상황 해제 확인 — 종결", closeShort: "상황 해제", resolveS: 8, resolveMin: 5,
-    held: "보류 — 관제탑에만 알린다.",
-    flight: { use: "window", from: "1253", to: "1353" },
   }),
 ];
 
@@ -138,17 +107,9 @@ export const MANUAL_SPOTS: Record<Kind, Spot[]> = {
     { zone: "서쪽 울타리 W-1", sensor: "울타리 장력 센서", x: 22, y: 140 },
     { zone: "북쪽 울타리 N-1", sensor: "울타리 장력 센서", x: 172, y: 30 },
   ],
-  fod: [
-    { zone: "유도로 A", sensor: "활주로 순찰 로봇 카메라", x: 102, y: 200 },
-    { zone: "활주로 북단", sensor: "활주로 순찰 로봇 카메라", x: 120, y: 124 },
-  ],
   bird: [
     { zone: "남쪽 접근로", sensor: "조류 레이더", x: 110, y: 455 },
     { zone: "활주로 동측 초지", sensor: "조류 레이더", x: 152, y: 300 },
-  ],
-  drone: [
-    { zone: "북동쪽 경계 밖", sensor: "레이더(조류·드론 구분)", x: 208, y: 14 },
-    { zone: "동쪽 경계 밖", sensor: "레이더(조류·드론 구분)", x: 212, y: 262 },
   ],
 };
 

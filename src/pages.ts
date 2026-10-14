@@ -260,8 +260,8 @@ function josa(w,a,b){const c=String(w).trim().slice(-1).charCodeAt(0)-0xac00;ret
 const spk=(t)=>String(t).replace(/·/g,"와 ").replace(/\\s*[A-Z]-\\d+/g,"").replace(/(\\d+)\\.(\\d)\\s*km/g,(m,a,b)=>koN(+a)+" 점 "+koN(+b)+" 킬로미터")
   .replace(/로봇 (\\d)/g,(m,a)=>"로봇 "+koN(+a)+" 번").replace(/\\d+/g,(m)=>koN(+m));
 const hmSpk=(m)=>{const h=Math.floor(m/60)%24,mi=Math.floor(m%60);return KO_H[h%12]+" 시 "+(mi?koN(mi)+" 분":"정각")};
-const KIND_SPK={intrusion:"침입",fod:"이물질",bird:"새 떼",drone:"미확인 드론"};
-const DONE_SPK={intrusion:"침입자를 관계기관에 인계했습니다.",fod:"이물질을 수거했습니다.",bird:"접근로가 정상입니다.",drone:"드론이 벗어났습니다."};
+const KIND_SPK={intrusion:"침입",bird:"새 떼"};
+const DONE_SPK={intrusion:"침입자를 관계기관에 인계했습니다.",bird:"접근로가 정상입니다."};
 const actSpk=(sc)=>spk(sc.approveLabel.replace(/\\s*승인$/,""));
 function alertSpk(sc,i){
   const j=i.judge;
@@ -280,12 +280,11 @@ function announce(){
   if(st==="decide"&&!i.decision){
     sayOnce(b+"|alert",alertSpk(sc,i));
     if(r&&!j.late){const D=r.at-sc.travelMin-r.need,s=sim();
-      if(s>=D-1&&s<D)sayOnce(b+"|dl1","승인 마감 일 분 전입니다. "+hmSpk(D)+"까지 승인해야 "+(sc.kind==="fod"?"첫 출발 전에 수거를":"착륙 전에 퇴치를")+" 마칩니다.");
+      if(s>=D-1&&s<D)sayOnce(b+"|dl1","승인 마감 일 분 전입니다. "+hmSpk(D)+"까지 승인해야 착륙 전에 퇴치를 마칩니다.");
       if(delayLate(sc,i))sayOnce(b+"|late","승인이 늦었습니다. 착륙 전에는 퇴치할 수 없어 관제탑에 공유했습니다. 착륙 편은 관제탑이 판단합니다.")}
     const n=Math.floor((el()-3)/30);if(n>=1&&n<=3)sayOnce(b+"|rem"+n,"승인을 기다리고 있습니다.")}
   if(st==="acting"){
-    if(sc.kind==="drone")sayOnce(b+"|arr","공항 탐지 카메라가 추적 중입니다. 관제탑과 관계기관에 공유했습니다.");
-    else{const u=spk(j?j.unitLabel:"로봇");sayOnce(b+"|arr",u+josa(u,"이","가")+" 현장에 도착했습니다."+(holding()?" 착륙이 지나갈 때까지 장비를 끄고 기다립니다.":""))}
+    {const u=spk(j?j.unitLabel:"로봇");sayOnce(b+"|arr",u+josa(u,"이","가")+" 현장에 도착했습니다."+(holding()?" 착륙이 지나갈 때까지 장비를 끄고 기다립니다.":""))}
     if(holdNow()>0&&!holding())sayOnce(b+"|pass","착륙이 지나갔습니다. 퇴치를 시작합니다.")}
   if(st==="resolved")sayOnce(b+"|res",DONE_SPK[sc.kind]+" 카메라로 확인하고 종결해 주세요.");
 }
@@ -310,7 +309,7 @@ function along(path,f){
 function unitPos(){
   const st=stage(),sc=scene(),pos={};
   for(const u of UNITS)pos[u.id]=[u.x,u.y];
-  // 대기 자리 — 지금 장면까지 정해진 homes(로봇 2 = 새벽 수거 뒤 북쪽 조류 퇴치 거점)
+  // 장면 때 자리 — 지금 장면까지 정해진 homes(로봇 1 = 밤 동쪽 울타리 순찰 위치)
   if(run)for(let n=1;n<=Math.min(run.scene,SCN.length);n++){const h=SCN[n-1].homes;if(h)for(const id in h)pos[id]=h[id]}
   if(sc&&(st==="moving"||st==="acting"||st==="resolved"))for(const id in sc.paths)pos[id]=along(sc.paths[id],st==="moving"?el()/mv(sc.travelMin):1);
   return pos;
@@ -399,7 +398,7 @@ function raceText(sc,i){
   const r=i.judge.race,ok0=i.decision==="approve";
   const arr=ok0?i.arrive_sim:sim()+sc.travelMin,done=arr+r.need,d=r.at-done;
   const pre=ok0?"도착 "+hhmm(arr)+" · ":"지금 승인하면 "+hhmm(arr)+" 도착 · ";
-  const what=sc.kind==="fod"?"수거":"퇴치";
+  const what="퇴치";
   return d>=0?esc(pre+what+"를 마쳐도 "+r.label+" "+hhmm(r.at)+"까지 "+dur(d)+" 남는다")
     :'<span class="late">'+esc(pre+what+" 완료 "+hhmm(done)+" — "+r.label+" "+hhmm(r.at)+"보다 "+dur(-d)+" 늦다 · "+(sc.kind==="bird"?"착륙 편은 관제탑 판단":"관제탑에 알린다"))+'</span>';
 }
@@ -419,7 +418,7 @@ function lateNote(s,i){
 }
 function sceneCard(){
   const st=stage(),sc=scene();
-  if(st==="idle")return '<div class="card"><h3>시연 준비</h3><div class="meta">24시간 비행장 — 밤 04:20 침입부터 낮 12:53 드론까지 네 장면. 센서·레이더가 잡으면 필드키퍼가 판단하고, 관리자 한 명이 승인과 종결을 쥔다. 현장 일은 로봇이 한다.</div></div>';
+  if(st==="idle")return '<div class="card"><h3>시연 준비</h3><div class="meta">24시간 비행장 — 밤 04:20 울타리 침입, 아침 08:57 새 떼. 두 장면. 센서·레이더가 잡으면 필드키퍼가 판단하고, 관리자 한 명이 승인과 종결을 쥔다. 현장 일은 북쪽 · 남쪽 거점의 순찰 로봇 두 대가 한다.</div></div>';
   if(st==="summary")return summaryCard();
   const k=KIND[sc.kind],i=incOf(run.scene)||{};
   if(st==="travel")return '<div class="card" style="--c:'+k.color+'"><h3>'+hhmm(sc.min)+' 으로 이동 중…</h3></div>';
@@ -503,7 +502,7 @@ function sounds(st){
   if(ROLE!=="cam"){engine(null);if(run&&sc&&st==="decide")once(run.id+"|"+run.scene+"|alert",sfx.alert);return}
   if(!run||!sc){engine(null);return}
   const k=run.id+"|"+run.scene,e=el(),t=e-mv(sc.travelMin)-holdS(),q=quiet();let want=null;
-  if(st==="moving"&&sc.paths[sc.cam.unit]){                 // 경로가 있는 장비만(드론 탐지 카메라는 움직이지 않는다)
+  if(st==="moving"&&sc.paths[sc.cam.unit]){                 // 경로가 있는 장비만
     want="robot|"+k;
     once(k+"|depart",sfx.depart);
     once(k+"|c"+Math.floor(e/1.2),sfx.caution);
@@ -512,8 +511,6 @@ function sounds(st){
     if(P&&P.next&&P.next.dist<14){const n=Math.floor(e*2.8);once(k+"|t"+n,n%2?sfx.tock:sfx.tick)}
   }
   if(st==="acting"&&t>0.3){if(sc.kind==="intrusion")once(k+"|warn",sfx.warn);if(sc.kind==="bird"){once(k+"|deter",sfx.deter);const n=Math.floor(t/2.6);if(t<sc.resolveS)once(k+"|boom"+n,sfx.boom)}}
-  if(st==="acting"&&sc.kind==="fod"&&t>2.5)once(k+"|servo",sfx.servo);
-  if(st==="acting"&&sc.kind==="drone")want="far|"+k;
   if(st==="resolved")once(k+"|chime",sfx.chime);
   engine(want);
 }
@@ -529,7 +526,7 @@ function tick(){
     else if(st==="moving"&&lastStage!=="moving"&&lastStage&&navigator.vibrate)navigator.vibrate([200,80,200]);
     lastStage=st}
   sounds(st);announce();
-  if(ROLE==="cam"){$("#cam").innerHTML=camNow();$("#camunit").textContent=(scene()&&stage()==="hold")?"고정 센서":scene()&&scene().cam.unit==="PTZ"?"공항 드론 탐지 카메라":"로봇 카메라 "+(scene()?scene().cam.unit:"")}
+  if(ROLE==="cam"){$("#cam").innerHTML=camNow();$("#camunit").textContent=(scene()&&stage()==="hold")?"고정 센서":"로봇 카메라 "+(scene()?scene().cam.unit:"")}
   else{const pv=document.querySelector(".camprev");if(pv)pv.innerHTML=camNow();drawUnits();moveCam()}
 }
 // 새 버전 — 한 번만 스스로 새로고침한다(같은 지문으로 또 다르면 멈추고 알린다). 새로고침 뒤 소리 · 음성은 다시 눌러야 켜진다
@@ -569,7 +566,7 @@ if(ROLE==="ops"){const vb=$("#voice");vb.onclick=(e)=>{e.stopPropagation();unloc
 function act(a){
   wake();if(navigator.vibrate)navigator.vibrate(30);
   if(ROLE==="ops"){hush();pressedAt=Date.now();const sc=scene();
-    if(a==="approve"&&sc)speak("승인했습니다. "+(sc.kind==="drone"?"관제탑과 관계기관에 공유합니다.":actSpk(sc)+"합니다."));else if(a==="hold")speak("보류했습니다.");else if(a==="close")speak("종결했습니다.")}
+    if(a==="approve"&&sc)speak("승인했습니다. "+actSpk(sc)+"합니다.");else if(a==="hold")speak("보류했습니다.");else if(a==="close")speak("종결했습니다.")}
   if(a==="next")post("/api/scene/next");
   else if(a==="approve"||a==="hold")post("/api/decide",{decision:a});
   else if(a==="close")post("/api/close");
