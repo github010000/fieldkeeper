@@ -533,6 +533,8 @@ function tick(){
   $("#clock").textContent=hhmm(sim());$("#date").textContent=kstDate();
   {const m=((Math.floor(sim())%1440)+1440)%1440,tod=m>=1050&&m<1140?"dusk":m>=360&&m<1140?"day":"night";if(document.documentElement.dataset.tod!==tod)document.documentElement.dataset.tod=tod}
   {const rc=$("#race"),sc=scene(),i=run&&incOf(run.scene);if(rc&&sc&&i&&i.judge&&i.judge.race&&i.decision!=="approve")rc.innerHTML=raceText(sc,i)}
+  // 현장 조치 중 한 줄 — 레이저 점검(도착 뒤 1.6초) → 방사처럼 화면을 다시 그리지 않아도 바뀌는 문구라 매번 다시 쓴다(10-15 녹화에서 「점검」에 멈춰 있던 일)
+  {const as=$("#actst"),sc=scene(),i=run&&incOf(run.scene);if(as&&sc&&i&&stage()==="acting"){const t=actStatus(sc,i);if(as.textContent!==t)as.textContent=t}}
   const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.judge?1:0)+(i.closed_sim!=null?1:0)+(i.judge&&i.judge.lateByDelay?1:0)).join(),(scene()&&incOf(run.scene)?delayLate(scene(),incOf(run.scene)):0),(scene()&&stage()==="acting"?holding():0),manual.length,run&&run.summary?1:0].join("|");
   if(key2!==shown){shown=key2;render();
     // 알림 띠는 자유 경보에만 — 장면 경보는 장면 카드가 보여 준다(띠가 아래 행동 단추를 가리지 않게)
