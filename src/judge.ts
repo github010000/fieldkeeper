@@ -12,20 +12,25 @@ export interface Judgement {
   score: number; grade: "긴급" | "높음" | "보통"; parts: Part[];
   unit: string; unitLabel: string; pick: string;   // 고른 장비와 고른 이유(탑재 장비 · 출발 자리 · 도착 시간)
   check: string | null;                            // (10-11 옛 기록용) 운항편과 맞춰 본 고정 문장 — 이제는 race 로 화면이 매초 계산한다
-  // 운항 경주 — 로봇 조치가 이 편보다 먼저 끝나야 한다(조류 = 다음 착륙). 화면이 승인 전엔 「지금 승인하면」, 뒤엔 실제 도착 시각으로 견준다
-  race?: { at: number; label: string; need: number } | null;
+  // 운항 경주 — 로봇 조치가 이 편보다 먼저 끝나야 한다(08:57 = 다음 착륙 · 18:15 = 다음 출발). 화면이 승인 전엔 「지금 승인하면」, 뒤엔 실제 도착 시각으로 견준다
+  // word = 「착륙」 · 「출발」(10-15 전 기록엔 없다 — 화면은 없으면 착륙으로 읽는다)
+  race?: { at: number; label: string; need: number; word?: "착륙" | "출발" } | null;
   late?: boolean;                                  // 경보 즉시 출발해도 그 편이 먼저 온다 → 조치 = actionLate, 관제탑 자동 공유(autoShare)
   lateByDelay?: boolean; shareAt?: number; holdMin?: number;  // holdMin = 도착 뒤 착륙 통과까지 장비 정지 대기(분)         // 승인 순간 기록(index.ts decide) — 승인이 늦어 착륙 전 퇴치를 못 마침 · 그 마감 시각(관제탑 다시 공유)
   why: string; whySrc: "ai" | "rule";
 }
 
-// 종류 — 사람 침입은 보안 사건이라 가장 높게 둔다
-const KIND_P: Record<Kind, number> = { intrusion: 50, bird: 35 };
+// 종류 — 범위는 조류 하나(10-15 침입 장면을 뺐다)
+const KIND_P: Record<Kind, number> = { bird: 35 };
 // 장비가 실은 것(시뮬레이션 가정) — 순찰형 한 기종이라 두 대가 같다(10-14). 고르는 기준은 누가 더 빨리 닿는가뿐
-const KIT = ["경고 방송", "카메라", "음파퇴치기", "폭음경보기", "녹색 레이저"];
+const KIT = ["카메라", "음파퇴치기", "폭음경보기", "녹색 레이저"];
 const EQUIP: Record<string, string[]> = { R1: KIT, R2: KIT };
-const NEED: Record<Kind, string> = { intrusion: "경고 방송", bird: "음파퇴치기" };
-const OBJ: Record<string, string> = { "경고 방송": "경고 방송을", "음파퇴치기": "음파퇴치기를" };
+// 장면이 쓰는 퇴치 수단 — 날아드는 새 떼는 음파퇴치기, 땅에 앉은 새 떼는 녹색 레이저(수평 0도 이하만, 고시 제32조의2)
+const needOf = (sc: Scene) => (sc.tool === "laser" ? "녹색 레이저" : "음파퇴치기");
+const OBJ: Record<string, string> = { "음파퇴치기": "음파퇴치기를", "녹색 레이저": "녹색 레이저를" };
+// 을/를 — 받침이 있으면 「을」, 없으면 「를」(접근로를 · 초지를)
+const eul = (w: string) => { const c = w.charCodeAt(w.length - 1) - 0xac00; return w + (c >= 0 && c < 11172 && c % 28 ? "을" : "를"); };
+const raceWord = (io: "I" | "O") => (io === "I" ? "착륙" : "출발") as "착륙" | "출발";
 const SUBJ: Record<string, string> = { R1: "로봇 1이", R2: "로봇 2가" };
 
 // 지도 좌표(airfield.ts) — 활주로 중심선 x=120, y 100~380, 착륙대 폭 ±15
@@ -62,7 +67,7 @@ function positions(idx: number): Record<string, [number, number]> {
 
 // 장비 고르기 — 장면 경로가 있으면 그 경로 길이로, 없으면 직선 × 1.4(유도로를 돌아가는 몫)로 도착 시간을 잰다
 export function pickUnit(idx: number) {
-  const sc = SCENES[idx], need = NEED[sc.kind];
+  const sc = SCENES[idx], need = needOf(sc);
   const pos = positions(idx);
   const cand = Object.keys(EQUIP).filter((u) => EQUIP[u].includes(need)).map((u) => {
     const path = sc.paths[u];
@@ -91,9 +96,10 @@ export function judgeScene(idx: number, f: FlightInfo | null): Judgement {
   const unit = p.unit, unitLabel = UNITS.find((u) => u.id === p.unit)!.label;
   const pick = `${p.need} 탑재 · ${p.from}에서 ${dur(p.min)}`;
   let race: Judgement["race"] = null, late = false;
-  if (sc.kind === "bird" && next && next.io === "I") {
-    race = { at: toMin(next.time), label: `${next.id} 착륙`, need: sc.resolveMin };
-    // 승인에 1분은 걸린다고 보고, 그래도 착륙이 먼저면 — 로봇은 이 착륙을 지킬 수 없다(관제탑이 판단, 대장 10-11)
+  if (sc.kind === "bird" && next) {
+    const word = raceWord(next.io);
+    race = { at: toMin(next.time), label: `${next.id} ${word}`, need: sc.resolveMin, word };
+    // 승인에 1분은 걸린다고 보고, 그래도 그 편이 먼저면 — 로봇은 이 편을 지킬 수 없다(관제탑이 판단, 대장 10-11)
     late = next.gap < 1 + p.min + sc.resolveMin && !!sc.actionLate;
   }
   const j: Judgement = { score, grade, parts: [kind, loc, fl], unit, unitLabel, pick, check: null, race, late, why: "", whySrc: "rule" };
@@ -103,16 +109,16 @@ export function judgeScene(idx: number, f: FlightInfo | null): Judgement {
 
 function ruleWhy(sc: Scene, j: Judgement, min: number): string {
   const head = `위험도 ${j.score}(${j.grade}) — ${j.parts[1].v} · ${j.parts[2].v}.`;
-  const need = NEED[sc.kind];
-  if (j.late) return `${head} 착륙이 로봇 퇴치보다 먼저라 관제탑에 바로 알렸고, ${OBJ[need]} 실은 ${SUBJ[j.unit]} 다음 편 전에 접근로를 정리한다.`;
+  const need = needOf(sc), word = j.race?.word ?? "착륙";
+  if (j.late) return `${head} ${word}이 로봇 퇴치보다 먼저라 관제탑에 바로 알렸고, ${OBJ[need]} 실은 ${SUBJ[j.unit]} 다음 편 전에 ${eul(sc.area)} 정리한다.`;
   return `${head} ${OBJ[need]} 실은 ${SUBJ[j.unit]} ${dur(min)} 만에 닿는다.`;
 }
 
 // AI 한 줄 — 계산값만 보낸다(원문 없음). msu LiteLLM(fieldkeeper-explain = gemma4, llm-serve 10-11) · 게이트웨이 시간 제한 4초(본문 timeout — 클라이언트만 끊으면 생성이 멈추지 않는다, llm-serve 10-11)
 // 답에 입력에 없던 숫자가 있거나 80자를 넘거나 실패하면 규칙 문장을 쓴다
-// 지시문 — 착륙이 먼저인 경보(late)에만 그 형식을 붙인다(늘 붙이면 다른 장면에도 「관제탑에 바로 알렸고」가 새어 나온다, 10-11 실측)
+// 지시문 — 그 편이 먼저인 경보(late)에만 그 형식을 붙인다(늘 붙이면 다른 장면에도 「관제탑에 바로 알렸고」가 새어 나온다, 10-11 실측)
 const SYS = "너는 비행장 관제 보조다. 관리자가 승인 단추를 누르기 전에 읽을 「왜 이 조치인가」 한 문장을 쓴다. 앞부분 = 왜 급한가(위험도 항목 가운데 점수가 큰 것과 운항 대조), 뒷부분 = 왜 이 장비인가(탑재 장비와 도착 시간). 문장은 '<탑재 장비>를 실은 로봇 N을 보낸다'로 끝낸다. 입력의 표현과 숫자만 쓰고, 입력에 없는 위치 · 상태 · 숫자 · 효과를 덧붙이지 않는다. 한국어 80자 이내, '-다'로 끝낸다. 문장만 출력한다.";
-const LATE = " 이번 경보는 착륙이 로봇보다 먼저다. 이 형식만 쓴다: '<운항 항목>이라 로봇보다 착륙이 먼저여서 관제탑에 바로 알렸고, <탑재 장비>를 실은 로봇 N은 다음 편 전에 접근로를 정리한다.' 로봇을 '보낸다'고 쓰지 않는다.";
+const LATE = (word: string, area: string) => ` 이번 경보는 ${word}이 로봇보다 먼저다. 이 형식만 쓴다: '<운항 항목>이라 로봇보다 ${word}이 먼저여서 관제탑에 바로 알렸고, <탑재 장비>를 실은 로봇 N은 다음 편 전에 ${eul(area)} 정리한다.' 로봇을 '보낸다'고 쓰지 않는다.`;
 export async function explain(env: { LLM_BASE_URL?: string; LLM_API_KEY?: string; LLM_MODEL?: string }, idx: number, j: Judgement): Promise<Judgement> {
   if (!env.LLM_BASE_URL) return j;
   const sc = SCENES[idx];
@@ -131,7 +137,7 @@ export async function explain(env: { LLM_BASE_URL?: string; LLM_API_KEY?: string
         model: env.LLM_MODEL || "fieldkeeper-explain", user: "fieldkeeper", timeout: 4, max_tokens: 120, temperature: 0,
         chat_template_kwargs: { enable_thinking: false },
         messages: [
-          { role: "system", content: SYS + (j.late ? LATE : "") },
+          { role: "system", content: SYS + (j.late ? LATE(j.race?.word ?? "착륙", sc.area) : "") },
           { role: "user", content: "경보: 조류(새 떼) · 남쪽 접근로 · 새 떼 약 12마리\n위험도: 85/100(긴급) = 종류 조류 35점 + 위치 접근로 축 30점 + 운항 착륙 25분 뒤 25점\n조치 장비: 로봇 2 (음파퇴치기 탑재 · 북쪽 거점에서 4분 10초)\n운항 대조: 착륙 21분 전에 현장에 닿는다" },
           { role: "assistant", content: "접근로 축에 새 떼가 있고 착륙이 25분 뒤라, 음파퇴치기를 실은 로봇 2를 보내 착륙 21분 전에 닿게 한다." },
           { role: "user", content: facts },
@@ -144,7 +150,7 @@ export async function explain(env: { LLM_BASE_URL?: string; LLM_API_KEY?: string
     const nums = (t: string) => t.match(/\d+/g) ?? [];
     const known = new Set(nums(facts));
     if (!s || s.length > 80 || nums(s).some((n) => !known.has(n))) return j;
-    // 착륙이 먼저인 경보는 「관제탑」이 빠지면 버린다 — 로봇이 착륙을 지키는 것처럼 읽히면 안 된다(대장 10-11)
+    // 그 편이 먼저인 경보는 「관제탑」이 빠지면 버린다 — 로봇이 그 편을 지키는 것처럼 읽히면 안 된다(대장 10-11)
     if (j.late && (!s.includes("관제탑") || s.includes("보낸다"))) return j;
     return { ...j, why: s, whySrc: "ai" };
   } catch { return j; }

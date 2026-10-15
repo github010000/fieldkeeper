@@ -12,6 +12,10 @@ const CSS = `
 /* 낮(시연 시계 06:00~18:59) — 지도는 낮 비행장으로, 카메라 폰은 밝은 화면으로. 관제 화면의 틀(바탕 · 카드 · 단추)은 낮에도 어둡게 둔다(관제실 화면은 보통 어둡다) — 대장 10-14 「아침 출동이 밤과 같은 남색」 */
 html[data-tod="day"]{--grass:#6d9156;--grass-dot:#7ea365;--strip:#7fa566;--rwy:#4b525a;--twy:#8f8a66;--apron:#a9b0b6;--bldg:#d5dbe0;--fence:#f4f7ef}
 html[data-tod="day"] .mapbox{background:#b4bfa9}
+/* 해 질 녘(17:30~18:59) — 노을빛 비행장(대장 10-15 「레이저 장면은 노을빛으로」). 지도만 바꾸고, 카메라 폰은 어두운 틀에 노을 화면 */
+html[data-tod="dusk"]{--grass:#4b4a35;--grass-dot:#5a5640;--strip:#5a5a3e;--rwy:#3c3a44;--twy:#7a6448;--apron:#6b5a62;--bldg:#a48a8a;--fence:#ffcf9a}
+html[data-tod="dusk"] .mapbox{background:linear-gradient(180deg,#5a3f5e,#c9805a)}
+html[data-tod="dusk"] .lbl,html[data-tod="dusk"] .scale text{fill:#fbe3cf} html[data-tod="dusk"] .scale rect{fill:#fbe3cf}
 html[data-tod="day"] .lbl,html[data-tod="day"] .scale text{fill:#18240f} html[data-tod="day"] .scale rect{fill:#18240f}
 html[data-tod="day"] body.cam{--bg:#e8edf1;--ink:#0b1219;--dim:#4d5d6d;--line:#c3ccd5;background:var(--bg);color:var(--ink)}
 html[data-tod="day"] body.cam header{background:rgba(236,241,245,.96)}
@@ -204,13 +208,9 @@ const scene=()=>run&&run.scene>=1&&run.scene<=SCN.length?SCN[run.scene-1]:null;
 const DOW="일월화수목금토";
 function kstDate(){const d=new Date(now()+9*3600e3);return d.getUTCFullYear()+"."+String(d.getUTCMonth()+1).padStart(2,"0")+"."+String(d.getUTCDate()).padStart(2,"0")+"("+DOW[d.getUTCDay()]+")"}
 // ── 소리 — 폰은 사람이 한 번 누르기 전엔 소리를 못 낸다(카메라 폰은 「소리 켜기」 한 번, 관제 폰은 첫 단추) ──
-let actx=null,warnEl=null,soundOn=false;const played=new Set();
+let actx=null,soundOn=false;const played=new Set();
 function unlockAudio(){
   try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume();
-    // 경고 방송은 로봇 카메라(/cam)만 낸다 — 관제는 방송 파일을 아예 불러오지 않는다(음소거 깨우기가 새는 기기가 있다)
-    if(ROLE==="cam"){
-      if(!warnEl){warnEl=new Audio("/audio/warning.mp3");warnEl.preload="auto"}
-      warnEl.muted=true;const p=warnEl.play();if(p)p.then(()=>{warnEl.pause();warnEl.currentTime=0;warnEl.muted=false}).catch(()=>{warnEl.muted=false})}
     soundOn=true}catch(e){}
 }
 function tone(f,d,type,at,g,f2){if(!actx)return;const o=actx.createOscillator(),v=actx.createGain(),t=actx.currentTime+(at||0);
@@ -221,7 +221,8 @@ const sfx={
   alert(){tone(880,0.18,"square",0,0.18);tone(880,0.18,"square",0.28,0.18)},         // 관제 — 새 경보
   chime(){tone(660,0.35,"sine",0,0.3);tone(990,0.5,"sine",0.3,0.3)},                // 해결 — 확인음
   deter(){for(let i=0;i<8;i++)tone(2200,0.22,"square",i*0.32,0.12,4200)},            // 조류 — 음향 퇴치(시뮬레이션)
-  warn(){if(warnEl){warnEl.currentTime=0;warnEl.play().catch(()=>{})}},              // 침입 — 로봇 스피커 경고 방송(한국어 · 영어)
+  laser(){tone(1180,0.5,"sine",0,0.05,1240)},                                       // 레이저 — 켤 때 짧은 신호음(빛은 소리가 없다. 화면 확인용)
+  check(){tone(880,0.09,"sine",0,0.12);tone(1320,0.12,"sine",0.14,0.12)},             // 레이저 안전시스템 점검 통과
   depart(){tone(523,0.12,"square",0,0.12);tone(784,0.18,"square",0.16,0.12)},        // 출발 신호
   caution(){tone(1400,0.08,"sine",0,0.07)},                                          // 이동 중 주의 비프
   tick(){tone(2300,0.025,"square",0,0.08)},tock(){tone(1700,0.025,"square",0,0.08)}, // 꺾기 전 깜빡이
@@ -230,7 +231,7 @@ const sfx={
     f.type="lowpass";f.frequency.value=900;g.gain.value=0.9;s.buffer=b;s.connect(f).connect(g).connect(actx.destination);s.start(t);tone(70,0.5,"sine",0,0.5,40)},
   servo(){tone(320,1.2,"sawtooth",0,0.035,720);tone(720,1.0,"sawtooth",1.3,0.035,380)}, // 수거 팔 펴기 · 접기
 };
-// 계속 나는 소리(구동음) — 로봇 모터 · 멀리 있는 침입 드론. 폰 스피커는 100Hz 아래를 거의 못 내서 배음을 섞는다
+// 계속 나는 소리(구동음) — 로봇 모터. 폰 스피커는 100Hz 아래를 거의 못 내서 배음을 섞는다
 const ENG={robot:[[96,"sawtooth"],[192,"square"]],far:[[240,"sawtooth"],[247,"sawtooth"]]};
 const ENG_G={robot:0.06,far:0.02},ENG_F={robot:1100,far:900};
 let eng=null;
@@ -269,14 +270,16 @@ function josa(w,a,b){const c=String(w).trim().slice(-1).charCodeAt(0)-0xac00;ret
 const spk=(t)=>String(t).replace(/·/g,"와 ").replace(/\\s*[A-Z]-\\d+/g,"").replace(/(\\d+)\\.(\\d)\\s*km/g,(m,a,b)=>koN(+a)+" 점 "+koN(+b)+" 킬로미터")
   .replace(/로봇 (\\d)/g,(m,a)=>"로봇 "+koN(+a)+" 번").replace(/\\d+/g,(m)=>koN(+m));
 const hmSpk=(m)=>{const h=Math.floor(m/60)%24,mi=Math.floor(m%60);return KO_H[h%12]+" 시 "+(mi?koN(mi)+" 분":"정각")};
-const KIND_SPK={intrusion:"침입",bird:"새 떼"};
-const DONE_SPK={intrusion:"침입자를 관계기관에 인계했습니다.",bird:"접근로가 정상입니다."};
+const KIND_SPK={bird:"새 떼"};
+const doneSpk=(sc)=>sc.tool==="laser"?"초지가 정상입니다. 새 떼는 활주로 반대쪽으로 나갔습니다.":"접근로가 정상입니다.";
+// 운항 경주의 편 — 착륙 · 출발(10-15 전 기록엔 word 가 없다 → 착륙)
+const rw=(j)=>(j&&j.race&&j.race.word)||"착륙";
 const actSpk=(sc)=>spk(sc.approveLabel.replace(/\\s*승인$/,""));
 function alertSpk(sc,i){
   const j=i.judge;
   let t=hmSpk(sc.min)+", "+spk(sc.zone)+"에서 "+KIND_SPK[sc.kind]+" 경보입니다.";
   if(j){t+=" 위험도 "+koN(j.score)+", "+j.grade+".";const f=/(착륙|출발)\\s*(\\d+)분 뒤/.exec(j.parts[2].v);if(f)t+=" 다음 "+f[1]+"은 "+koN(+f[2])+" 분 뒤입니다.";
-    if(j.late)t+=" 착륙이 로봇보다 먼저입니다. 관제탑에 공유했습니다."}
+    if(j.late)t+=" "+rw(j)+"이 로봇보다 먼저입니다. 관제탑에 공유했습니다."}
   const a=actSpk(sc);return t+" "+a+josa(a,"을","를")+" 승인해 주세요.";
 }
 function announce(){
@@ -289,13 +292,13 @@ function announce(){
   if(st==="decide"&&!i.decision){
     sayOnce(b+"|alert",alertSpk(sc,i));
     if(r&&!j.late){const D=r.at-sc.travelMin-r.need,s=sim();
-      if(s>=D-1&&s<D)sayOnce(b+"|dl1","승인 마감 일 분 전입니다. "+hmSpk(D)+"까지 승인해야 착륙 전에 퇴치를 마칩니다.");
-      if(delayLate(sc,i))sayOnce(b+"|late","승인이 늦었습니다. 착륙 전에는 퇴치할 수 없어 관제탑에 공유했습니다. 착륙 편은 관제탑이 판단합니다.")}
+      if(s>=D-1&&s<D)sayOnce(b+"|dl1","승인 마감 일 분 전입니다. "+hmSpk(D)+"까지 승인해야 "+rw(j)+" 전에 퇴치를 마칩니다.");
+      if(delayLate(sc,i))sayOnce(b+"|late","승인이 늦었습니다. "+rw(j)+" 전에는 퇴치할 수 없어 관제탑에 공유했습니다. "+rw(j)+" 편은 관제탑이 판단합니다.")}
     const n=Math.floor((el()-3)/30);if(n>=1&&n<=3)sayOnce(b+"|rem"+n,"승인을 기다리고 있습니다.")}
   if(st==="acting"){
-    {const u=spk(j?j.unitLabel:"로봇");sayOnce(b+"|arr",u+josa(u,"이","가")+" 현장에 도착했습니다."+(holding()?" 착륙이 지나갈 때까지 장비를 끄고 기다립니다.":""))}
-    if(holdNow()>0&&!holding())sayOnce(b+"|pass","착륙이 지나갔습니다. 퇴치를 시작합니다.")}
-  if(st==="resolved")sayOnce(b+"|res",DONE_SPK[sc.kind]+" 카메라로 확인하고 종결해 주세요.");
+    {const u=spk(j?j.unitLabel:"로봇");sayOnce(b+"|arr",u+josa(u,"이","가")+" 현장에 도착했습니다."+(holding()?" "+rw(j)+"이 지나갈 때까지 "+(sc.tool==="laser"?"레이저를 잠그고":"장비를 끄고")+" 기다립니다.":sc.tool==="laser"?" 레이저 안전시스템을 확인하고 수평 아래로 비춥니다.":""))}
+    if(holdNow()>0&&!holding())sayOnce(b+"|pass",rw(j)+"이 지나갔습니다. 퇴치를 시작합니다.")}
+  if(st==="resolved")sayOnce(b+"|res",doneSpk(sc)+" 카메라로 확인하고 종결해 주세요.");
 }
 const incOf=(n)=>inc.find((x)=>x.scene===n);
 ${CAM_JS}
@@ -304,7 +307,7 @@ function camNow(){
   const t=(st==="acting"||st==="resolved")&&sc?el()-mv(sc.travelMin)-holdS():st==="hold"?el():0;
   const frac=st==="moving"&&sc?el()/mv(sc.travelMin):0;
   const i=run&&incOf(run.scene),r=i&&i.judge&&i.judge.race;
-  return camSvg(st,sc,t,frac,sim(),quiet()?{label:r?r.label:"착륙",at:r?hhmm(r.at):""}:null);
+  return camSvg(st,sc,t,frac,sim(),quiet()?{label:r?r.label:"착륙",at:r?hhmm(r.at):"",word:r&&r.word||"착륙"}:null);
 }
 
 // ── 지도(관제) ──
@@ -318,7 +321,7 @@ function along(path,f){
 function unitPos(){
   const st=stage(),sc=scene(),pos={};
   for(const u of UNITS)pos[u.id]=[u.x,u.y];
-  // 장면 때 자리 — 지금 장면까지 정해진 homes(로봇 1 = 밤 동쪽 울타리 순찰 위치)
+  // 장면 때 자리 — 지금 장면까지 정해진 homes(로봇 1 = 해 질 녘 동쪽 초지 순찰 위치)
   if(run)for(let n=1;n<=Math.min(run.scene,SCN.length);n++){const h=SCN[n-1].homes;if(h)for(const id in h)pos[id]=h[id]}
   if(sc&&(st==="moving"||st==="acting"||st==="resolved"))for(const id in sc.paths)pos[id]=along(sc.paths[id],st==="moving"?el()/mv(sc.travelMin):1);
   return pos;
@@ -335,9 +338,9 @@ function markers(){
   const out=[],st=stage();
   if(run)for(let n=1;n<=Math.min(run.scene,SCN.length);n++){
     if(n===run.scene&&st==="travel")continue;
-    const s=SCN[n-1];out.push({id:s.id,kind:s.kind,x:s.x,y:s.y,t:s.min,zone:s.zone,sensor:s.sensor,live:n===run.scene&&["decide","hold","moving","acting"].includes(st)});
+    const s=SCN[n-1];if(!KIND[s.kind])continue;out.push({id:s.id,kind:s.kind,x:s.x,y:s.y,t:s.min,zone:s.zone,sensor:s.sensor,live:n===run.scene&&["decide","hold","moving","acting"].includes(st)});
   }
-  for(const a of manual)out.push({id:a.id,kind:a.kind,x:a.x,y:a.y,t:a.sim_min,zone:a.zone,sensor:a.sensor,live:false,free:true});
+  for(const a of manual)if(KIND[a.kind])out.push({id:a.id,kind:a.kind,x:a.x,y:a.y,t:a.sim_min,zone:a.zone,sensor:a.sensor,live:false,free:true});
   return out;
 }
 function drawMap(){
@@ -382,7 +385,7 @@ function judge(sc,i,title){
   if(j)h+='<div class="parts">'+j.parts.map((p)=>esc(p.k)+' '+esc(p.v)+' <em>'+p.p+'</em>').join(" · ")+'</div>';
   h+='<div><span class="lab">상황</span>'+esc(sc.situation)+'</div>'+flightLine(i.flight);
   if(j&&j.late&&sc.autoShare)h+='<div class="auto"><span class="lab">자동</span>'+hhmm(sc.min)+' '+esc(sc.autoShare)+'</div>';
-  if(delayLate(sc,i))h+='<div class="auto"><span class="lab">자동</span>'+hhmm(shareAt(sc,i))+' 승인 지연 — 착륙 전 퇴치 불가, 관제탑에 조류 정보 다시 공유('+esc(j.race.label)+' '+hhmm(j.race.at)+' · 착륙 편 판단은 관제탑)</div>';
+  if(delayLate(sc,i))h+='<div class="auto"><span class="lab">자동</span>'+hhmm(shareAt(sc,i))+' 승인 지연 — '+rw(j)+' 전 퇴치 불가, 관제탑에 조류 정보 다시 공유('+esc(j.race.label)+' '+hhmm(j.race.at)+' · '+rw(j)+' 편 판단은 관제탑)</div>';
   h+='<div style="margin-top:5px"><span class="lab">조치</span>'+esc(actText(sc,i))+'</div>';
   if(j){
     h+='<div style="margin-top:5px"><span class="lab">장비</span>'+esc(j.unitLabel)+' — '+esc(j.pick)+'</div>';
@@ -391,9 +394,9 @@ function judge(sc,i,title){
   }
   return h+'</div>';
 }
-// 조치 문장 — 착륙이 로봇 퇴치보다 먼저 오는 경보면 관제탑 판단 · 다음 편 대비로(judge.ts late)
+// 조치 문장 — 운항 편이 로봇 퇴치보다 먼저 오는 경보면 관제탑 판단 · 다음 편 대비로(judge.ts late)
 function actText(sc,i){return isLate(sc,i)&&sc.actionLate?sc.actionLate:sc.action}
-// 승인이 늦어 착륙 전에 퇴치를 못 마치게 됐는가(경보 때는 여유가 있었다) — 승인 전엔 매초, 승인 뒤엔 서버가 승인 순간 기록한 값(lateByDelay)
+// 승인이 늦어 그 편(착륙 · 출발) 전에 퇴치를 못 마치게 됐는가(경보 때는 여유가 있었다) — 승인 전엔 매초, 승인 뒤엔 서버가 승인 순간 기록한 값(lateByDelay)
 function delayLate(sc,i){
   const j=i.judge;if(!j||!j.race||j.late||sc.kind!=="bird"||i.decision==="hold")return false;
   if(i.decision==="approve")return !!j.lateByDelay;
@@ -409,31 +412,33 @@ function raceText(sc,i){
   const pre=ok0?"도착 "+hhmm(arr)+" · ":"지금 승인하면 "+hhmm(arr)+" 도착 · ";
   const what="퇴치";
   return d>=0?esc(pre+what+"를 마쳐도 "+r.label+" "+hhmm(r.at)+"까지 "+dur(d)+" 남는다")
-    :'<span class="late">'+esc(pre+what+" 완료 "+hhmm(done)+" — "+r.label+" "+hhmm(r.at)+"보다 "+dur(-d)+" 늦다 · "+(sc.kind==="bird"?"착륙 편은 관제탑 판단":"관제탑에 알린다"))+'</span>';
+    :'<span class="late">'+esc(pre+what+" 완료 "+hhmm(done)+" — "+r.label+" "+hhmm(r.at)+"보다 "+dur(-d)+" 늦다 · "+(r.word||"착륙")+" 편은 관제탑 판단")+'</span>';
 }
 // 경보 → 종결 한 줄 — 합계는 칸별 시간을 더하지 않고 종결 − 경보로(반올림 차이가 없게)
 function span(i){return i.closed_sim==null?"":hhmm(i.alert_sim)+" 경보 → "+hhmm(i.closed_sim)+" 종결 · 모두 "+dur(i.closed_sim-i.alert_sim)}
-// 현장 조치 중 한 줄 — 착륙 통과 대기면 그것부터(장비 정지), 지나면 다음 편 대비 퇴치
+// 현장 조치 중 한 줄 — 그 편(착륙 · 출발) 통과 대기면 그것부터(장비 정지 · 레이저 잠금), 지나면 다음 편 대비 퇴치
 function actStatus(sc,i){
-  if(sc.kind==="bird"&&quiet()){const r=i.judge.race;return holding()?"현장 대기 · 장비 정지 — "+r.label+" "+hhmm(r.at)+" 통과 뒤 퇴치(관제탑 지시)":"착륙 통과 · 다음 편 대비 퇴치 중"}
+  const lz=sc.tool==="laser";
+  if(sc.kind==="bird"&&quiet()){const r=i.judge.race;return holding()?"현장 대기 · "+(lz?"레이저 잠금":"장비 정지")+" — "+r.label+" "+hhmm(r.at)+" 통과 뒤 퇴치(관제탑 지시)":rw(i.judge)+" 통과 · 다음 편 대비 퇴치 중"}
+  if(lz&&holdNow()===0&&el()-mv(sc.travelMin)<1.6)return "레이저 안전시스템 점검 — 위로 0°를 넘으면 자동 정지";
   return sc.waitText;
 }
 // 분기 말 — 조류 장면이 관제탑 판단으로 넘어간 경위
 function lateNote(s,i){
   const j=i.judge;if(!j||s.kind!=="bird")return "";
-  if(j.late)return '<br><span class="lnote">착륙이 먼저 → '+hhmm(s.min)+' 관제탑 즉시 공유</span>';
-  if(j.lateByDelay)return '<br><span class="lnote">승인 지연 → '+hhmm(shareAt(s,i))+' 관제탑 공유, 착륙 편은 관제탑 판단</span>';
+  if(j.late)return '<br><span class="lnote">'+rw(j)+'이 먼저 → '+hhmm(s.min)+' 관제탑 즉시 공유</span>';
+  if(j.lateByDelay)return '<br><span class="lnote">승인 지연 → '+hhmm(shareAt(s,i))+' 관제탑 공유, '+rw(j)+' 편은 관제탑 판단</span>';
   return "";
 }
 function sceneCard(){
   const st=stage(),sc=scene();
-  if(st==="idle")return '<div class="card"><h3>시연 준비</h3><div class="meta">24시간 비행장 — 아침 08:57 새 떼, 밤 22:00 울타리 침입. 두 장면. 센서·레이더가 잡으면 필드키퍼가 판단하고, 관리자 한 명이 승인과 종결을 쥔다. 현장 일은 북쪽 · 남쪽 거점의 순찰 로봇 두 대가 한다.</div></div>';
+  if(st==="idle")return '<div class="card"><h3>시연 준비</h3><div class="meta">조류 하루 — 아침 08:57 접근로로 날아드는 새 떼(음파 · 폭음), 해 질 녘 18:15 출발 전 초지에 앉은 새 떼(녹색 레이저). 두 장면. 레이더가 잡으면 필드키퍼가 판단하고, 관리자 한 명이 승인과 종결을 쥔다. 현장 일은 북쪽 · 남쪽 거점의 순찰 로봇 두 대가 한다.</div></div>';
   if(st==="summary")return summaryCard();
   const k=KIND[sc.kind],i=incOf(run.scene)||{};
   if(st==="travel")return '<div class="card" style="--c:'+k.color+'"><h3>'+hhmm(sc.min)+' 으로 이동 중…</h3></div>';
   let h='<div class="card" style="--c:'+k.color+'"><h3><span class="dot" style="background:'+k.color+'">'+k.mark+'</span>'+esc(k.ko)+'<time>'+hhmm(sc.min)+'</time></h3>'+
     '<div class="zone">'+esc(sc.zone)+'</div><div class="meta">'+esc(sc.sensor)+'</div>';
-  if(st==="decide")h+='<div class="box today"><b>실제 사례 — 과거에 이렇게 됐다</b>'+esc(sc.today)+'</div>'+judge(sc,i,"필드키퍼 판단");
+  if(st==="decide")h+='<div class="box today"><b>'+esc(sc.todayLabel||"실제 사례 — 과거에 이렇게 됐다")+'</b>'+esc(sc.today)+'</div>'+judge(sc,i,"필드키퍼 판단");
   else if(st==="moving")h+=judge(sc,i,"승인 · 출동 중")+'<div class="camprev">'+camNow()+'</div><div class="status">도착 '+hhmm(i.arrive_sim||sim())+' 예정</div>';
   else if(st==="acting")h+='<div class="camprev">'+camNow()+'</div><div class="box fk"><b>현장 조치 중 — 로봇 카메라</b>'+esc(actText(sc,i))+'</div><div class="status" id="actst">'+esc(actStatus(sc,i))+'</div>';
   else if(st==="resolved")h+='<div class="camprev">'+camNow()+'</div><div class="box done"><b>해결 — 로봇 카메라로 확인</b>'+esc(sc.result)+'</div><div class="status ok">관리자가 확인하고 종결한다</div>';
@@ -449,13 +454,13 @@ function times(i,s){
 }
 function summaryCard(){
   const sm=(run&&run.summary)||{};
-  const rows=inc.map((i)=>{const s=SCN[i.scene-1],k=KIND[s.kind];
+  const rows=inc.filter((i)=>SCN[i.scene-1]&&KIND[SCN[i.scene-1].kind]).map((i)=>{const s=SCN[i.scene-1],k=KIND[s.kind];
     const d=i.decision==="approve"?"승인":i.decision==="hold"?"보류":"결정 없음";
     return '<div class="rec"><div class="t"><time>'+hhmm(s.min)+'</time><span class="dot" style="background:'+k.color+';width:18px;height:18px;font-size:10px">'+k.mark+'</span>'+esc(k.ko)+'<em>'+d+(i.closed_sim!=null?" · 종결":"")+'</em></div>'+
-      '<div class="d">'+(i.closed_sim!=null?'<b>'+span(i)+'</b><br>':"")+times(i,s)+lateNote(s,i)+'</div><div class="o">실제 사례: '+esc(s.todayShort)+'</div></div>'}).join("");
-  const birds=inc.filter((i)=>SCN[i.scene-1].kind==="bird");
+      '<div class="d">'+(i.closed_sim!=null?'<b>'+span(i)+'</b><br>':"")+times(i,s)+lateNote(s,i)+'</div><div class="o">'+(s.todayLabel?"지금":"실제 사례")+': '+esc(s.todayShort)+'</div></div>'}).join("");
+  const birds=inc.filter((i)=>SCN[i.scene-1]&&SCN[i.scene-1].kind==="bird");
   const mv=sm.movements;
-  const sent=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1].travelMin>0).length,shared=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1].travelMin===0).length;
+  const sent=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1]&&SCN[i.scene-1].travelMin>0).length,shared=inc.filter((i)=>i.decision==="approve"&&SCN[i.scene-1]&&SCN[i.scene-1].travelMin===0).length;
   return '<div class="card" style="--c:var(--ok)"><h3>분기 말 — 기록이 남았다</h3>'+
     '<div class="meta">경보 · 관리자의 승인 · 로봇 도착 · 종결이 자동으로 쌓였다. 고시가 쓰는 지표로 바로 답한다.</div>'+rows+
     '<div class="box done"><b>조류충돌발생률 (운항 1만 회당 충돌 · 고시 정의)</b>'+
@@ -466,7 +471,7 @@ function summaryCard(){
 }
 function stepBar(){
   const n=run?run.scene:0;
-  return SCN.map((s,i)=>'<span class="'+(n===i+1?"on":n>i+1?"past":"")+'">'+(i+1)+' '+hhmm(s.min)+' '+KIND[s.kind].ko.replace(/\\(.*\\)/,"")+'</span>').join("")+
+  return SCN.map((s,i)=>'<span class="'+(n===i+1?"on":n>i+1?"past":"")+'">'+(i+1)+' '+hhmm(s.min)+' '+(s.tool==="laser"?"앉은 새 · 레이저":"새 떼 · 음파")+'</span>').join("")+
     '<span class="'+(n>SCN.length?"on":"")+'">분기 말</span>';
 }
 // 아래 행동 띠 — 단계마다 관리자가 누를 단추
@@ -480,7 +485,7 @@ function actions(){
   if(st==="acting")return B("x",esc(sc.waitText)+"…","primary wide",true);
   if(st==="resolved")return B("close",esc(sc.closeLabel),"approve wide");
   if(st==="hold")return B("close","보류 상태로 종결","approve wide");
-  if(st==="closed")return n>=SCN.length?B("next","분기 말 기록 보기 ▶","primary wide"):B("next","다음 장면 ▶ "+hhmm(SCN[n].min)+" "+KIND[SCN[n].kind].ko,"primary wide");
+  if(st==="closed")return n>=SCN.length?B("next","분기 말 기록 보기 ▶","primary wide"):B("next","다음 장면 ▶ "+hhmm(SCN[n].min)+" "+(SCN[n].tool==="laser"?"앉은 새 떼 · 레이저":KIND[SCN[n].kind].ko),"primary wide");
   return "";
 }
 function render(){
@@ -515,17 +520,18 @@ function sounds(st){
     want="robot|"+k;
     once(k+"|depart",sfx.depart);
     once(k+"|c"+Math.floor(e/1.2),sfx.caution);
-    if(sc.kind==="bird"&&e>0.6&&!q)once(k+"|deter",sfx.deter);   // 조류 — 출발과 함께 음파퇴치기(착륙이 먼저면 끄고 간다)
+    if(sc.kind==="bird"&&sc.tool!=="laser"&&e>0.6&&!q)once(k+"|deter",sfx.deter);   // 조류 — 출발과 함께 음파퇴치기(그 편이 먼저면 끄고 간다) · 레이저는 잠근 채 간다
     const P=camPose(sc,e/mv(sc.travelMin));                  // 꺾기 직전 깜빡이 — 내비 안내가 노랗게 바뀌는 때와 같다
     if(P&&P.next&&P.next.dist<14){const n=Math.floor(e*2.8);once(k+"|t"+n,n%2?sfx.tock:sfx.tick)}
   }
-  if(st==="acting"&&t>0.3){if(sc.kind==="intrusion")once(k+"|warn",sfx.warn);if(sc.kind==="bird"){once(k+"|deter",sfx.deter);const n=Math.floor(t/2.6);if(t<sc.resolveS)once(k+"|boom"+n,sfx.boom)}}
+  if(st==="acting"&&sc.kind==="bird"&&sc.tool==="laser"){if(t>0.2)once(k+"|check",sfx.check);if(t>1.6)once(k+"|laser",sfx.laser)}   // 레이저 — 점검 통과음 · 켤 때 신호음
+  else if(st==="acting"&&t>0.3&&sc.kind==="bird"){once(k+"|deter",sfx.deter);const n=Math.floor(t/2.6);if(t<sc.resolveS)once(k+"|boom"+n,sfx.boom)}
   if(st==="resolved")once(k+"|chime",sfx.chime);
   engine(want);
 }
 function tick(){
   $("#clock").textContent=hhmm(sim());$("#date").textContent=kstDate();
-  {const m=((Math.floor(sim())%1440)+1440)%1440,tod=m>=360&&m<1140?"day":"night";if(document.documentElement.dataset.tod!==tod)document.documentElement.dataset.tod=tod}
+  {const m=((Math.floor(sim())%1440)+1440)%1440,tod=m>=1050&&m<1140?"dusk":m>=360&&m<1140?"day":"night";if(document.documentElement.dataset.tod!==tod)document.documentElement.dataset.tod=tod}
   {const rc=$("#race"),sc=scene(),i=run&&incOf(run.scene);if(rc&&sc&&i&&i.judge&&i.judge.race&&i.decision!=="approve")rc.innerHTML=raceText(sc,i)}
   const st=stage(),key2=[run&&run.id,run&&run.scene,st,locked,!!key,busy,inc.map((i)=>i.decision+(i.flight?1:0)+(i.judge?1:0)+(i.closed_sim!=null?1:0)+(i.judge&&i.judge.lateByDelay?1:0)).join(),(scene()&&incOf(run.scene)?delayLate(scene(),incOf(run.scene)):0),(scene()&&stage()==="acting"?holding():0),manual.length,run&&run.summary?1:0].join("|");
   if(key2!==shown){shown=key2;render();
@@ -624,7 +630,7 @@ export function dashboardPage(role: "ops" | "cam", build = pageBuild()): string 
   if (role === "cam") {
     return `${head}<body class="cam">
 <header class="band cam"><div class="brand"><span class="recdot"></span><span id="camunit">로봇 카메라</span><small>필드키퍼 · 가상 지방공항</small></div><div class="clock"><span id="date" class="date"></span><b id="clock">08:00</b></div></header>
-<button id="unlock" class="unlock">🔊 소리 켜기<small>로봇 스피커 경고 방송 · 퇴치음 — 시연 전에 한 번 누르세요</small></button>
+<button id="unlock" class="unlock">🔊 소리 켜기<small>로봇 구동음 · 퇴치음 — 시연 전에 한 번 누르세요</small></button>
 <main class="camwrap"><div id="cam" class="camview"></div><p id="camline" class="camline"></p><p class="fine center">센서·로봇·카메라 화면 = 시뮬레이션</p></main>
 <script>${data}${JS}</script></body></html>`;
   }

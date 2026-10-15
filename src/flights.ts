@@ -66,6 +66,12 @@ export async function flightInfo(env: { DATA_GO_KR_SERVICE_KEY?: string; FLIGHT_
       if (!f) return { ok: true, text: "오늘 이 시간대 착륙 예정 편 없음", flights: [] };
       return { ok: true, text: `다음 착륙 ${at(f)} ${f.id}(${f.other}발) — 경보 ${minsBetween(sceneTime, f.eff)}분 뒤 · 1시간 안 ${fs.length}편`, flights: fs.slice(0, 5) };
     }
+    if (q.use === "nextDepart") {
+      const fs = await get("depart");
+      const f = fs[0];
+      if (!f) return { ok: true, text: "오늘 이 시간대 출발 예정 편 없음", flights: [] };
+      return { ok: true, text: `다음 출발 ${at(f)} ${f.id}(${f.other}행) — 경보 ${minsBetween(sceneTime, f.eff)}분 뒤 · 이 시간대 ${fs.length}편`, flights: fs.slice(0, 5) };
+    }
     const [a, d] = await Promise.all([get("arrival"), get("depart")]);
     const all = [...a, ...d].sort(byEff);
     if (q.use === "next") {
